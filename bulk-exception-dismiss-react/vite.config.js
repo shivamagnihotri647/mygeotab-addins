@@ -6,12 +6,19 @@ export default defineConfig({
     base: "./",
     build: {
         outDir: "dist",
+        // Build as a library in IIFE format so geotab.addin is accessible
+        // on the global scope (MyGeotab injects `geotab` before scripts run)
+        lib: {
+            entry: "src/app.jsx",
+            formats: ["iife"],
+            name: "BulkExceptionDismissAddin",
+            fileName: () => "scripts/main.js",
+        },
         rollupOptions: {
-            input: "index.html",
             output: {
-                entryFileNames: "scripts/main.js",
                 assetFileNames: "styles/[name][extname]",
             },
         },
+        cssCodeSplit: false,
     },
 });
