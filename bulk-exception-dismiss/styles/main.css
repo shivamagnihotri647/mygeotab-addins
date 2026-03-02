@@ -1,0 +1,138 @@
+/* Bulk Exception Dismiss — Custom Styles (bed- namespaced) */
+
+.bed-container {
+    padding: 16px;
+}
+
+.bed-controls-panel {
+    padding: 0 16px 16px 0;
+}
+
+.bed-log-panel {
+    padding: 0 0 16px 16px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Form */
+.bed-form-group {
+    margin-bottom: 14px;
+}
+
+.bed-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+    font-size: 13px;
+    color: #394049;
+}
+
+.bed-required {
+    color: #d32f2f;
+}
+
+#bed-rule-select,
+#bed-device-select {
+    width: 100%;
+    margin-top: 4px;
+    font-size: 13px;
+}
+
+#bed-rule-search,
+#bed-device-search,
+#bed-start-date {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Buttons */
+.bed-btn-danger {
+    background-color: #d32f2f !important;
+    border-color: #b71c1c !important;
+    color: #fff !important;
+}
+
+.bed-btn-danger:hover:not(:disabled) {
+    background-color: #b71c1c !important;
+}
+
+.bed-btn-danger:disabled {
+    background-color: #999 !important;
+    border-color: #999 !important;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+#bed-btn-find,
+#bed-btn-dismiss {
+    width: 100%;
+}
+
+/* Status & Error */
+.bed-status-line {
+    padding: 10px 12px;
+    background-color: #e3f2fd;
+    border-left: 4px solid #1565c0;
+    font-size: 13px;
+    color: #0d47a1;
+    margin-bottom: 10px;
+    border-radius: 2px;
+}
+
+.bed-error-box {
+    padding: 10px 12px;
+    background-color: #fdecea;
+    border-left: 4px solid #d32f2f;
+    font-size: 13px;
+    color: #b71c1c;
+    margin-bottom: 10px;
+    border-radius: 2px;
+}
+
+/* Log Area */
+.bed-log-area {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    font-family: "Menlo", "Consolas", "Courier New", monospace;
+    font-size: 12px;
+    padding: 12px;
+    border-radius: 4px;
+    flex: 1;
+    min-height: 400px;
+    max-height: 600px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.bed-log-info {
+    color: #d4d4d4;
+}
+
+.bed-log-success {
+    color: #4caf50;
+}
+
+.bed-log-error {
+    color: #ef5350;
+}
+
+.bed-log-warn {
+    color: #ffb74d;
+}
+
+/* Responsive: stack columns on small screens */
+@media (max-width: 768px) {
+    .bed-controls-panel {
+        padding: 0 0 16px 0;
+    }
+
+    .bed-log-panel {
+        padding: 0;
+    }
+
+    .bed-log-area {
+        min-height: 250px;
+    }
+}

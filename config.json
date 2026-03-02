@@ -1,0 +1,16 @@
+{
+  "name": "Bulk Exception Dismiss",
+  "supportEmail": "shivam@geotab.com",
+  "version": "1.0.0",
+  "items": [
+    {
+      "url": "https://shivamagnihotri647.github.io/mygeotab-addins/bulk-exception-dismiss/",
+      "path": "RuleAndGroupsLink/",
+      "menuName": {
+        "en": "Bulk Exception Dismiss"
+      },
+      "icon": "https://shivamagnihotri647.github.io/mygeotab-addins/bulk-exception-dismiss/images/icon.svg"
+    }
+  ],
+  "isSigned": false
+}

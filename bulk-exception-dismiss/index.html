@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Exception Dismiss</title>
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <div id="bulkExceptionDismiss">
+        <div class="geotabPageHeader">
+            <h1 class="geotabPageName">Bulk Exception Dismiss</h1>
+        </div>
+
+        <div id="bed-container" class="bed-container" style="display:none;">
+            <div class="cssGrid">
+                <!-- Left Column: Controls -->
+                <div class="lg-part-4">
+                    <div class="bed-controls-panel">
+
+                        <!-- Rule Selection -->
+                        <div class="bed-form-group">
+                            <label class="bed-label">Rule <span class="bed-required">*</span></label>
+                            <input type="text" id="bed-rule-search" class="checkmateFormEditField" placeholder="Search rules...">
+                            <select id="bed-rule-select" class="checkmateFormEditField" size="6">
+                                <option value="" disabled selected>Loading rules...</option>
+                            </select>
+                        </div>
+
+                        <!-- Device Selection -->
+                        <div class="bed-form-group">
+                            <label class="bed-label">Device</label>
+                            <input type="text" id="bed-device-search" class="checkmateFormEditField" placeholder="Search devices...">
+                            <select id="bed-device-select" class="checkmateFormEditField" size="6">
+                                <option value="" disabled selected>Loading devices...</option>
+                            </select>
+                        </div>
+
+                        <!-- Date Picker -->
+                        <div class="bed-form-group">
+                            <label class="bed-label">Start Date <span class="bed-required">*</span></label>
+                            <input type="date" id="bed-start-date" class="checkmateFormEditField">
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="bed-form-group">
+                            <button id="bed-btn-find" class="geotabButton">Find Exceptions</button>
+                        </div>
+                        <div class="bed-form-group">
+                            <button id="bed-btn-dismiss" class="geotabButton bed-btn-danger" disabled>Dismiss All</button>
+                        </div>
+
+                        <!-- Status -->
+                        <div id="bed-status-line" class="bed-status-line" style="display:none;"></div>
+                        <div id="bed-error-box" class="bed-error-box" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Log -->
+                <div class="lg-part-8">
+                    <div class="bed-log-panel">
+                        <label class="bed-label">Progress Log</label>
+                        <div id="bed-log-area" class="bed-log-area"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="scripts/main.js"></script>
+</body>
+</html>
