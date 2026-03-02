@@ -1,0 +1,16 @@
+{
+  "name": "Bulk Exception Dismiss (React)",
+  "supportEmail": "shivam@geotab.com",
+  "version": "2.0.0",
+  "items": [
+    {
+      "url": "https://shivamagnihotri647.github.io/mygeotab-addins/bulk-exception-dismiss-react/dist/",
+      "path": "RuleAndGroupsLink/",
+      "menuName": {
+        "en": "Bulk Exception Dismiss"
+      },
+      "icon": "https://shivamagnihotri647.github.io/mygeotab-addins/bulk-exception-dismiss/images/icon.svg"
+    }
+  ],
+  "isSigned": false
+}

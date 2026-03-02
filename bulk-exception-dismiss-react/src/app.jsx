@@ -9,6 +9,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import BulkExceptionDismiss from "./components/BulkExceptionDismiss";
+import "./styles.css";
 
 // ── Mount container ──
 // MyGeotab provides a <div id="bulkExceptionDismiss"> in the page.
