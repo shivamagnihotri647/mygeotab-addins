@@ -34,18 +34,18 @@
     font-weight: 600;
     margin-bottom: 6px;
     font-size: 13px;
-    color: var(--zen-color-text-primary, #394049);
+    color: #394049;
 }
 
 .bed-required {
-    color: var(--zen-color-status-error, #d32f2f);
+    color: #d32f2f;
 }
 
 .bed-btn-full {
     width: 100%;
 }
 
-/* Log panel */
+/* ── Progress Log ── */
 .bed-log-panel {
     display: flex;
     flex-direction: column;
@@ -53,32 +53,141 @@
 }
 
 .bed-log-area {
-    background-color: #1e1e1e;
-    color: #d4d4d4;
-    font-family: "Menlo", "Consolas", "Courier New", monospace;
-    font-size: 12px;
-    padding: 12px;
-    border-radius: 6px;
+    background-color: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
     flex: 1;
     min-height: 420px;
     max-height: 600px;
     overflow-y: auto;
-    white-space: pre-wrap;
+    padding: 4px 0;
+}
+
+/* Individual log entry */
+.bed-log-entry {
+    display: flex;
+    align-items: flex-start;
+    padding: 6px 12px;
+    border-left: 3px solid transparent;
+    font-size: 13px;
+    line-height: 1.5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    transition: background-color 0.15s ease;
+}
+
+.bed-log-entry:hover {
+    background-color: #eef1f4;
+}
+
+.bed-log-entry + .bed-log-entry {
+    border-top: 1px solid #eee;
+}
+
+/* Timestamp */
+.bed-log-time {
+    flex-shrink: 0;
+    width: 76px;
+    font-size: 11px;
+    font-family: "Menlo", "Consolas", monospace;
+    color: #999;
+    padding-top: 1px;
+}
+
+/* Message */
+.bed-log-message {
+    flex: 1;
+    color: #394049;
     word-break: break-word;
 }
 
-.bed-log-info {
-    color: #d4d4d4;
+/* Icon dot */
+.bed-log-icon {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+    margin-top: 6px;
 }
 
-.bed-log-success {
-    color: #4caf50;
+/* Type variants */
+.bed-log-entry--info {
+    border-left-color: #1976d2;
+}
+.bed-log-entry--info .bed-log-icon {
+    background-color: #1976d2;
 }
 
-.bed-log-error {
-    color: #ef5350;
+.bed-log-entry--success {
+    border-left-color: #2e7d32;
+    background-color: #f1f8f2;
+}
+.bed-log-entry--success .bed-log-icon {
+    background-color: #2e7d32;
+}
+.bed-log-entry--success .bed-log-message {
+    color: #1b5e20;
+    font-weight: 500;
 }
 
-.bed-log-warn {
-    color: #ffb74d;
+.bed-log-entry--error {
+    border-left-color: #d32f2f;
+    background-color: #fef2f2;
+}
+.bed-log-entry--error .bed-log-icon {
+    background-color: #d32f2f;
+}
+.bed-log-entry--error .bed-log-message {
+    color: #b71c1c;
+    font-weight: 500;
+}
+
+.bed-log-entry--warn {
+    border-left-color: #f57c00;
+    background-color: #fff8f0;
+}
+.bed-log-entry--warn .bed-log-icon {
+    background-color: #f57c00;
+}
+.bed-log-entry--warn .bed-log-message {
+    color: #e65100;
+}
+
+/* Empty state */
+.bed-log-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 200px;
+    color: #999;
+    font-size: 14px;
+    font-style: italic;
+}
+
+/* Log header */
+.bed-log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.bed-log-count {
+    font-size: 12px;
+    color: #999;
+    font-weight: 400;
+}
+
+.bed-log-clear {
+    font-size: 12px;
+    color: #1976d2;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+.bed-log-clear:hover {
+    background-color: #e3f2fd;
 }

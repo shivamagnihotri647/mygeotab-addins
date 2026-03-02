@@ -19,7 +19,9 @@ import {
     ProgressBar,       // { min?, max?, now?, size? }
     PageHeader,        // { title }
 } from "@geotab/zenith";
-import "@geotab/zenith/dist/index.css";
+// NOTE: Do NOT import @geotab/zenith/dist/index.css here.
+// MyGeotab already loads Zenith CSS globally — bundling a second copy
+// causes specificity conflicts (e.g. white text on white dropdowns).
 
 // ── Constants ──
 const BATCH_SIZE = 100;
@@ -407,13 +409,36 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
 
                 {/* ── Right Column: Log ── */}
                 <div className="bed-log-panel">
-                    <label className="bed-label">Progress Log</label>
+                    <div className="bed-log-header">
+                        <label className="bed-label">
+                            Progress Log
+                            {logs.length > 0 && (
+                                <span className="bed-log-count"> ({logs.length} entries)</span>
+                            )}
+                        </label>
+                        {logs.length > 0 && (
+                            <button
+                                className="bed-log-clear"
+                                onClick={() => setLogs([])}
+                            >
+                                Clear
+                            </button>
+                        )}
+                    </div>
                     <div className="bed-log-area">
-                        {logs.map((entry, i) => (
-                            <div key={i} className={`bed-log-${entry.type}`}>
-                                [{entry.time}] {entry.message}
+                        {logs.length === 0 ? (
+                            <div className="bed-log-empty">
+                                No activity yet. Select a rule and click "Find Exceptions" to begin.
                             </div>
-                        ))}
+                        ) : (
+                            logs.map((entry, i) => (
+                                <div key={i} className={`bed-log-entry bed-log-entry--${entry.type}`}>
+                                    <span className="bed-log-icon" />
+                                    <span className="bed-log-time">{entry.time}</span>
+                                    <span className="bed-log-message">{entry.message}</span>
+                                </div>
+                            ))
+                        )}
                         <div ref={logEndRef} />
                     </div>
                 </div>
