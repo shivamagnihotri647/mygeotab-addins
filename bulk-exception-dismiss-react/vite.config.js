@@ -4,10 +4,11 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
     plugins: [react()],
     base: "./",
+    define: {
+        "process.env.NODE_ENV": JSON.stringify("production"),
+    },
     build: {
         outDir: "dist",
-        // Build as a library in IIFE format so geotab.addin is accessible
-        // on the global scope (MyGeotab injects `geotab` before scripts run)
         lib: {
             entry: "src/app.jsx",
             formats: ["iife"],
