@@ -1,0 +1,84 @@
+/* Bulk Exception Dismiss — React + Zenith custom overrides (bed- namespaced) */
+
+.bed-container {
+    padding: 16px 24px;
+    max-width: 1400px;
+}
+
+/* Two-column layout */
+.bed-layout {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 24px;
+    margin-top: 16px;
+}
+
+@media (max-width: 768px) {
+    .bed-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Controls panel */
+.bed-controls-panel {
+    display: flex;
+    flex-direction: column;
+}
+
+.bed-form-group {
+    margin-bottom: 16px;
+}
+
+.bed-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--zen-color-text-primary, #394049);
+}
+
+.bed-required {
+    color: var(--zen-color-status-error, #d32f2f);
+}
+
+.bed-btn-full {
+    width: 100%;
+}
+
+/* Log panel */
+.bed-log-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.bed-log-area {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    font-family: "Menlo", "Consolas", "Courier New", monospace;
+    font-size: 12px;
+    padding: 12px;
+    border-radius: 6px;
+    flex: 1;
+    min-height: 420px;
+    max-height: 600px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.bed-log-info {
+    color: #d4d4d4;
+}
+
+.bed-log-success {
+    color: #4caf50;
+}
+
+.bed-log-error {
+    color: #ef5350;
+}
+
+.bed-log-warn {
+    color: #ffb74d;
+}
