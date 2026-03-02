@@ -1,33 +1,17 @@
 /**
- * BulkExceptionDismiss — React + Zenith MyGeotab Add-In
+ * BulkExceptionDismiss — React MyGeotab Add-In
  *
- * Replicates the vanilla JS add-in with proper React state management
- * and Zenith design system components for native MyGeotab look-and-feel.
- *
- * Zenith API references verified against @geotab/zenith v1.26.6 .d.ts files.
+ * Uses React for state management with standard HTML elements styled
+ * by MyGeotab's built-in CSS classes. Avoids bundling @geotab/zenith
+ * components which cause version/CSS conflicts when loaded inside MyGeotab.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-
-// ── Zenith imports (verified against installed @geotab/zenith v1.26.6) ──
-import {
-    Button,
-    ButtonType,        // { Primary, Secondary, Destructive, Tertiary, ... }
-    Banner,            // { type: "error"|"info"|"success"|"warning", children, header?, onClose? }
-    DateInput,         // { value, onChange, disabled? }
-    Select,            // { title, items: [{id,name}], value: id, onChange(id), placeholder?, disabled? }
-    ProgressBar,       // { min?, max?, now?, size? }
-    PageHeader,        // { title }
-} from "@geotab/zenith";
-// NOTE: Do NOT import @geotab/zenith/dist/index.css here.
-// MyGeotab already loads Zenith CSS globally — bundling a second copy
-// causes specificity conflicts (e.g. white text on white dropdowns).
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 // ── Constants ──
 const BATCH_SIZE = 100;
 const RESULTS_LIMIT = 50_000;
 const RATE_LIMIT_PAUSE_MS = 61_000;
-
 const ALL_DEVICES_ID = "__ALL__";
 
 // ── Helper: wrap legacy api.call in a Promise ──
@@ -43,13 +27,67 @@ const apiMultiCall = (api, calls) =>
 
 const timestamp = () => new Date().toLocaleTimeString();
 
+// ── Sub-components ──
+
+const SearchableSelect = ({ label, required, items, value, onChange, placeholder, disabled }) => {
+    const [search, setSearch] = useState("");
+
+    const filtered = useMemo(() => {
+        if (!search) return items;
+        const term = search.toLowerCase();
+        return items.filter((item) => item.name.toLowerCase().includes(term));
+    }, [items, search]);
+
+    return (
+        <div className="bed-form-group">
+            {label && (
+                <label className="bed-label">
+                    {label} {required && <span className="bed-required">*</span>}
+                </label>
+            )}
+            <input
+                type="text"
+                className="bed-search-input"
+                placeholder={placeholder || "Type to search..."}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                disabled={disabled}
+            />
+            <select
+                className="bed-select"
+                size="6"
+                value={value || ""}
+                onChange={(e) => onChange(e.target.value)}
+                disabled={disabled}
+            >
+                {filtered.length === 0 ? (
+                    <option value="" disabled>No results found</option>
+                ) : (
+                    filtered.map((item) => (
+                        <option key={item.id} value={item.id}>
+                            {item.name}
+                        </option>
+                    ))
+                )}
+            </select>
+        </div>
+    );
+};
+
+const LogEntry = ({ entry }) => (
+    <div className={`bed-log-entry bed-log-entry--${entry.type}`}>
+        <span className="bed-log-dot" />
+        <span className="bed-log-time">{entry.time}</span>
+        <span className="bed-log-message">{entry.message}</span>
+    </div>
+);
+
 // ══════════════════════════════════════════════════════════════
-// Component
+// Main Component
 // ══════════════════════════════════════════════════════════════
 
 const BulkExceptionDismiss = ({ geotabApi }) => {
     // ── Data state ──
-    // Select items use Zenith's { id: string, name: string } format
     const [ruleItems, setRuleItems] = useState([]);
     const [deviceItems, setDeviceItems] = useState([
         { id: ALL_DEVICES_ID, name: "All Devices" },
@@ -57,13 +95,12 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
     const [dataLoading, setDataLoading] = useState(true);
 
     // ── Form state ──
-    // Select value is the selected item's id string
-    const [selectedRuleId, setSelectedRuleId] = useState(undefined);
+    const [selectedRuleId, setSelectedRuleId] = useState("");
     const [selectedDeviceId, setSelectedDeviceId] = useState(ALL_DEVICES_ID);
     const [startDate, setStartDate] = useState(() => {
         const d = new Date();
         d.setDate(d.getDate() - 30);
-        return d;
+        return d.toISOString().split("T")[0];
     });
 
     // ── Exception / dismiss state ──
@@ -80,7 +117,6 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
     // ── Refs ──
     const logEndRef = useRef(null);
     const countdownRef = useRef(null);
-    const cancelledRef = useRef(false);
 
     // ── Log helper ──
     const addLog = useCallback((message, type = "info") => {
@@ -95,7 +131,6 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
     // ── Load rules & devices on mount ──
     useEffect(() => {
         if (!geotabApi) return;
-
         let cancelled = false;
 
         const load = async () => {
@@ -105,10 +140,8 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
                     apiCall(geotabApi, "Get", { typeName: "Rule", resultsLimit: RESULTS_LIMIT }),
                     apiCall(geotabApi, "Get", { typeName: "Device", resultsLimit: RESULTS_LIMIT }),
                 ]);
-
                 if (cancelled) return;
 
-                // Zenith Select expects { id: string, name: string }
                 const rules = rawRules
                     .map((r) => ({ id: r.id, name: r.name || r.id }))
                     .sort((a, b) => a.name.localeCompare(b.name));
@@ -118,10 +151,7 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
                     .sort((a, b) => a.name.localeCompare(b.name));
 
                 setRuleItems(rules);
-                setDeviceItems([
-                    { id: ALL_DEVICES_ID, name: "All Devices" },
-                    ...devices,
-                ]);
+                setDeviceItems([{ id: ALL_DEVICES_ID, name: "All Devices" }, ...devices]);
                 addLog(`Loaded ${rules.length} rules and ${devices.length} devices.`, "success");
             } catch (err) {
                 if (!cancelled) {
@@ -137,7 +167,7 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
         return () => { cancelled = true; };
     }, [geotabApi, addLog]);
 
-    // ── Lookup helpers ──
+    // ── Lookup helper ──
     const getItemName = useCallback((items, id) => {
         const item = items.find((i) => i.id === id);
         return item ? item.name : id || "Unknown";
@@ -158,10 +188,8 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
             return;
         }
 
-        const fromDate = new Date(startDate);
-        fromDate.setHours(0, 0, 0, 0);
+        const fromDate = new Date(startDate + "T00:00:00");
         const toDate = new Date();
-
         const ruleName = getItemName(ruleItems, selectedRuleId);
         const deviceName = selectedDeviceId === ALL_DEVICES_ID
             ? "All Devices"
@@ -170,7 +198,6 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
         addLog(`Searching exceptions for rule: ${ruleName}`);
         addLog(`Device: ${deviceName}`);
         addLog(`Date range: ${fromDate.toLocaleDateString()} to ${toDate.toLocaleDateString()}`);
-
         setSearching(true);
 
         const search = {
@@ -197,7 +224,6 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
             const undismissed = results.filter(
                 (ex) => ex.state !== "ExceptionEventStateDismissedId"
             );
-
             setFoundExceptions(undismissed);
 
             if (undismissed.length === 0) {
@@ -209,10 +235,7 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
                     setStatusMessage(`All ${results.length} exceptions are already dismissed.`);
                 }
             } else {
-                addLog(
-                    `Found ${undismissed.length} undismissed exceptions (out of ${results.length} total).`,
-                    "success"
-                );
+                addLog(`Found ${undismissed.length} undismissed exceptions (out of ${results.length} total).`, "success");
                 setStatusMessage(`${undismissed.length} undismissed exceptions ready to dismiss.`);
             }
         } catch (err) {
@@ -229,7 +252,6 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
 
         setErrorMessage("");
         setDismissing(true);
-        cancelledRef.current = false;
 
         const total = foundExceptions.length;
         setDismissProgress({ done: 0, total });
@@ -238,8 +260,6 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
         let offset = 0;
 
         while (offset < total) {
-            if (cancelledRef.current) break;
-
             const batch = foundExceptions.slice(offset, offset + BATCH_SIZE);
             const calls = batch.map((ex) => [
                 "Set",
@@ -268,7 +288,6 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
 
             offset += BATCH_SIZE;
 
-            // Rate-limit pause if more batches remain
             if (offset < total) {
                 addLog("Waiting 60s for API rate limit to reset...", "warn");
 
@@ -280,7 +299,6 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
                         setStatusMessage(
                             `Progress: ${dismissed}/${total} — next batch in ${remaining}s`
                         );
-
                         if (remaining <= 0) {
                             clearInterval(countdownRef.current);
                             countdownRef.current = null;
@@ -299,7 +317,7 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
         setDismissing(false);
     }, [geotabApi, foundExceptions, addLog]);
 
-    // Cleanup countdown interval on unmount
+    // Cleanup on unmount
     useEffect(() => {
         return () => {
             if (countdownRef.current) clearInterval(countdownRef.current);
@@ -309,6 +327,10 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
     // ── Derived state ──
     const canDismiss = foundExceptions.length > 0 && !dismissing && !searching;
     const canSearch = !searching && !dismissing && !dataLoading;
+    const today = new Date().toISOString().split("T")[0];
+    const progressPct = dismissProgress.total > 0
+        ? Math.round((dismissProgress.done / dismissProgress.total) * 100)
+        : 0;
 
     // ══════════════════════════════════════════════════════════
     // Render
@@ -316,94 +338,100 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
 
     return (
         <div className="bed-container">
-            <PageHeader title="Bulk Exception Dismiss" />
+            <div className="geotabPageHeader">
+                <h1 className="geotabPageName">Bulk Exception Dismiss</h1>
+            </div>
 
             <div className="bed-layout">
                 {/* ── Left Column: Controls ── */}
                 <div className="bed-controls-panel">
 
-                    {/* Rule Select — Zenith Select: items=[{id,name}], value=id, onChange(id) */}
-                    <div className="bed-form-group">
-                        <Select
-                            title="Rule *"
-                            items={ruleItems}
-                            value={selectedRuleId}
-                            onChange={(id) => setSelectedRuleId(id)}
-                            placeholder="Search rules..."
-                            disabled={dismissing || dataLoading}
-                        />
-                    </div>
+                    <SearchableSelect
+                        label="Rule"
+                        required
+                        items={ruleItems}
+                        value={selectedRuleId}
+                        onChange={setSelectedRuleId}
+                        placeholder="Search rules..."
+                        disabled={dismissing || dataLoading}
+                    />
 
-                    {/* Device Select */}
-                    <div className="bed-form-group">
-                        <Select
-                            title="Device"
-                            items={deviceItems}
-                            value={selectedDeviceId}
-                            onChange={(id) => setSelectedDeviceId(id || ALL_DEVICES_ID)}
-                            placeholder="Search devices..."
-                            disabled={dismissing || dataLoading}
-                        />
-                    </div>
+                    <SearchableSelect
+                        label="Device"
+                        items={deviceItems}
+                        value={selectedDeviceId}
+                        onChange={(id) => setSelectedDeviceId(id || ALL_DEVICES_ID)}
+                        placeholder="Search devices..."
+                        disabled={dismissing || dataLoading}
+                    />
 
-                    {/* Date Input */}
                     <div className="bed-form-group">
                         <label className="bed-label">
                             Start Date <span className="bed-required">*</span>
                         </label>
-                        <DateInput
+                        <input
+                            type="date"
+                            className="bed-date-input"
                             value={startDate}
-                            onChange={(date) => setStartDate(date)}
+                            max={today}
+                            onChange={(e) => setStartDate(e.target.value)}
                             disabled={dismissing}
                         />
                     </div>
 
-                    {/* Action Buttons — ButtonType enum: Primary, Destructive */}
                     <div className="bed-form-group">
-                        <Button
-                            type={ButtonType.Primary}
+                        <button
+                            className="geotabButton bed-btn-full"
                             onClick={handleFind}
                             disabled={!canSearch}
-                            className="bed-btn-full"
                         >
                             {searching ? "Searching..." : "Find Exceptions"}
-                        </Button>
+                        </button>
                     </div>
 
                     <div className="bed-form-group">
-                        <Button
-                            type={ButtonType.Destructive}
+                        <button
+                            className="geotabButton bed-btn-danger bed-btn-full"
                             onClick={handleDismiss}
                             disabled={!canDismiss}
-                            className="bed-btn-full"
                         >
                             {dismissing ? "Dismissing..." : "Dismiss All"}
-                        </Button>
+                        </button>
                     </div>
 
-                    {/* Progress Bar — Zenith: min, max, now (not "value") */}
+                    {/* Progress bar */}
                     {dismissing && dismissProgress.total > 0 && (
                         <div className="bed-form-group">
-                            <ProgressBar
-                                min={0}
-                                max={dismissProgress.total}
-                                now={dismissProgress.done}
-                            />
+                            <div className="bed-progress-bar">
+                                <div
+                                    className="bed-progress-fill"
+                                    style={{ width: `${progressPct}%` }}
+                                />
+                            </div>
+                            <div className="bed-progress-label">
+                                {dismissProgress.done} / {dismissProgress.total} ({progressPct}%)
+                            </div>
                         </div>
                     )}
 
-                    {/* Status Banner */}
+                    {/* Status banner */}
                     {statusMessage && (
-                        <Banner type="info">
+                        <div className="bed-banner bed-banner--info">
                             {statusMessage}
-                        </Banner>
+                        </div>
                     )}
 
-                    {/* Error Banner */}
+                    {/* Error banner */}
                     {errorMessage && (
-                        <Banner type="error" onClose={() => setErrorMessage("")}>
-                            {errorMessage}
-                        </Banner>
+                        <div className="bed-banner bed-banner--error">
+                            <span>{errorMessage}</span>
+                            <button
+                                className="bed-banner-close"
+                                onClick={() => setErrorMessage("")}
+                            >
+                                &times;
+                            </button>
+                        </div>
                     )}
                 </div>
 
@@ -413,14 +441,11 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
                         <label className="bed-label">
                             Progress Log
                             {logs.length > 0 && (
-                                <span className="bed-log-count"> ({logs.length} entries)</span>
+                                <span className="bed-log-count"> ({logs.length})</span>
                             )}
                         </label>
                         {logs.length > 0 && (
-                            <button
-                                className="bed-log-clear"
-                                onClick={() => setLogs([])}
-                            >
+                            <button className="bed-log-clear" onClick={() => setLogs([])}>
                                 Clear
                             </button>
                         )}
@@ -428,16 +453,10 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
                     <div className="bed-log-area">
                         {logs.length === 0 ? (
                             <div className="bed-log-empty">
-                                No activity yet. Select a rule and click "Find Exceptions" to begin.
+                                Select a rule and click "Find Exceptions" to begin.
                             </div>
                         ) : (
-                            logs.map((entry, i) => (
-                                <div key={i} className={`bed-log-entry bed-log-entry--${entry.type}`}>
-                                    <span className="bed-log-icon" />
-                                    <span className="bed-log-time">{entry.time}</span>
-                                    <span className="bed-log-message">{entry.message}</span>
-                                </div>
-                            ))
+                            logs.map((entry, i) => <LogEntry key={i} entry={entry} />)
                         )}
                         <div ref={logEndRef} />
                     </div>
