@@ -7,16 +7,17 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
-// ── Zenith imports ──
-// These are real @geotab/zenith exports based on the Storybook/docs.
-// If a component isn't available, fall back to a simple HTML equivalent
-// styled with Zenith CSS classes.
+// ── Zenith imports (verified against actual @geotab/zenith package exports) ──
 import {
     Button,
+    ButtonType,
     Banner,
-    DatePicker,
-    Autocomplete,
+    DateInput,
+    Select,
     ProgressBar,
+    SearchInput,
+    PageHeader,
+    PageHeaderDisplayName,
 } from "@geotab/zenith";
 import "@geotab/zenith/dist/index.css";
 
@@ -310,52 +311,54 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
     return (
         <div className="bed-container">
             {/* ── Page Header ── */}
-            <div className="geotabPageHeader">
-                <h1 className="geotabPageName">Bulk Exception Dismiss</h1>
-            </div>
+            <PageHeader title="Bulk Exception Dismiss" />
 
             <div className="bed-layout">
                 {/* ── Left Column: Controls ── */}
                 <div className="bed-controls-panel">
 
-                    {/* Rule Autocomplete */}
+                    {/* Rule Select */}
                     <div className="bed-form-group">
                         <label className="bed-label">
                             Rule <span className="bed-required">*</span>
                         </label>
-                        <Autocomplete
-                            options={allRules}
-                            getOptionLabel={(opt) => opt.label}
-                            value={selectedRule}
-                            onChange={(_, value) => setSelectedRule(value)}
+                        <Select
+                            options={allRules.map((r) => ({ label: r.label, value: r.id }))}
+                            value={selectedRule ? { label: selectedRule.label, value: selectedRule.id } : null}
+                            onChange={(option) => setSelectedRule(option ? { id: option.value, label: option.label } : null)}
                             placeholder="Search rules..."
-                            loading={dataLoading}
-                            disabled={dismissing}
-                            isOptionEqualToValue={(opt, val) => opt.id === val?.id}
+                            isSearchable
+                            isLoading={dataLoading}
+                            isDisabled={dismissing}
                         />
                     </div>
 
-                    {/* Device Autocomplete */}
+                    {/* Device Select */}
                     <div className="bed-form-group">
                         <label className="bed-label">Device</label>
-                        <Autocomplete
-                            options={deviceOptions}
-                            getOptionLabel={(opt) => opt.label}
-                            value={selectedDevice}
-                            onChange={(_, value) => setSelectedDevice(value || ALL_DEVICES_OPTION)}
+                        <Select
+                            options={deviceOptions.map((d) => ({ label: d.label, value: d.id }))}
+                            value={{ label: selectedDevice.label, value: selectedDevice.id }}
+                            onChange={(option) => {
+                                if (option) {
+                                    setSelectedDevice({ id: option.value, label: option.label });
+                                } else {
+                                    setSelectedDevice(ALL_DEVICES_OPTION);
+                                }
+                            }}
                             placeholder="Search devices..."
-                            loading={dataLoading}
-                            disabled={dismissing}
-                            isOptionEqualToValue={(opt, val) => opt.id === val?.id}
+                            isSearchable
+                            isLoading={dataLoading}
+                            isDisabled={dismissing}
                         />
                     </div>
 
-                    {/* Date Picker */}
+                    {/* Date Input */}
                     <div className="bed-form-group">
                         <label className="bed-label">
                             Start Date <span className="bed-required">*</span>
                         </label>
-                        <DatePicker
+                        <DateInput
                             value={startDate}
                             onChange={(date) => setStartDate(date)}
                             maxDate={new Date()}
@@ -366,7 +369,7 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
                     {/* Action Buttons */}
                     <div className="bed-form-group">
                         <Button
-                            variant="primary"
+                            type={ButtonType.Primary}
                             onClick={handleFind}
                             disabled={!canSearch}
                             className="bed-btn-full"
@@ -377,7 +380,7 @@ const BulkExceptionDismiss = ({ geotabApi }) => {
 
                     <div className="bed-form-group">
                         <Button
-                            variant="destructive"
+                            type={ButtonType.Danger}
                             onClick={handleDismiss}
                             disabled={!canDismiss}
                             className="bed-btn-full"
