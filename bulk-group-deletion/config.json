@@ -1,0 +1,16 @@
+{
+  "name": "Bulk Group Deletion",
+  "supportEmail": "shivam@geotab.com",
+  "version": "1.0.0",
+  "items": [
+    {
+      "url": "https://shivamagnihotri647.github.io/mygeotab-addins/bulk-group-deletion/dist/",
+      "path": "GroupsLink/",
+      "menuName": {
+        "en": "Bulk Group Deletion"
+      },
+      "icon": "https://shivamagnihotri647.github.io/mygeotab-addins/bulk-group-deletion/dist/images/icon.svg"
+    }
+  ],
+  "isSigned": false
+}

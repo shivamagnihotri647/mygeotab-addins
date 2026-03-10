@@ -1,0 +1,464 @@
+/* Bulk Group Deletion — React + native HTML styled to match Geotab (bgd- namespaced) */
+
+.bgd-container {
+    padding: 16px 24px;
+    max-width: 1400px;
+}
+
+/* ── Layout ── */
+.bgd-layout {
+    display: grid;
+    grid-template-columns: 480px 1fr;
+    gap: 32px;
+    margin-top: 16px;
+}
+
+@media (max-width: 900px) {
+    .bgd-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ── Controls Panel ── */
+.bgd-controls-panel {
+    display: flex;
+    flex-direction: column;
+}
+
+.bgd-form-group {
+    margin-bottom: 16px;
+}
+
+.bgd-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: #394049;
+}
+
+/* ── Upload Area ── */
+.bgd-upload-area {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 32px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+    background: #fafafa;
+}
+
+.bgd-upload-area:hover {
+    border-color: #1976d2;
+    background: #f0f7ff;
+}
+
+.bgd-upload-area--active {
+    border-color: #1976d2;
+    background: #e3f2fd;
+}
+
+.bgd-upload-area--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.bgd-upload-area--disabled:hover {
+    border-color: #ccc;
+    background: #fafafa;
+}
+
+.bgd-upload-icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+    color: #999;
+}
+
+.bgd-upload-text {
+    font-size: 14px;
+    color: #666;
+    margin: 0;
+}
+
+.bgd-upload-subtext {
+    font-size: 12px;
+    color: #999;
+    margin: 4px 0 0;
+}
+
+.bgd-file-info {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: #e8f5e9;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #2e7d32;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.bgd-file-clear {
+    background: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    color: #2e7d32;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.bgd-file-clear:hover {
+    color: #1b5e20;
+}
+
+/* ── Group Table ── */
+.bgd-table-wrap {
+    max-height: 340px;
+    overflow-y: auto;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.bgd-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.bgd-table th {
+    position: sticky;
+    top: 0;
+    background: #f5f5f5;
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 2px solid #e0e0e0;
+    color: #394049;
+    z-index: 1;
+}
+
+.bgd-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid #f0f0f0;
+    color: #394049;
+}
+
+.bgd-table tr:last-child td {
+    border-bottom: none;
+}
+
+.bgd-table tr:hover td {
+    background: #f8f9fa;
+}
+
+.bgd-table-id {
+    font-family: "Menlo", "Consolas", monospace;
+    font-size: 12px;
+    color: #555;
+}
+
+/* ── Status Badges ── */
+.bgd-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.bgd-badge--pending {
+    background: #e0e0e0;
+    color: #666;
+}
+
+.bgd-badge--probing {
+    background: #e3f2fd;
+    color: #1565c0;
+}
+
+.bgd-badge--deleting {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.bgd-badge--deleted {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.bgd-badge--failed {
+    background: #fdecea;
+    color: #c62828;
+}
+
+.bgd-badge--skipped {
+    background: #fff8e1;
+    color: #f57f17;
+}
+
+/* ── Connections Summary ── */
+.bgd-connections {
+    font-size: 11px;
+    color: #888;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Buttons ── */
+.bgd-btn-full {
+    width: 100%;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s, opacity 0.2s;
+    font-family: inherit;
+}
+
+.bgd-btn-full:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.bgd-btn-danger {
+    background-color: #d32f2f !important;
+    border-color: #b71c1c !important;
+    color: #fff !important;
+}
+
+.bgd-btn-danger:hover:not(:disabled) {
+    background-color: #b71c1c !important;
+}
+
+.bgd-btn-secondary {
+    background-color: #1976d2 !important;
+    border-color: #1565c0 !important;
+    color: #fff !important;
+}
+
+.bgd-btn-secondary:hover:not(:disabled) {
+    background-color: #1565c0 !important;
+}
+
+/* ── Progress Bar ── */
+.bgd-progress-bar {
+    height: 8px;
+    background: #e0e0e0;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.bgd-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #1976d2, #42a5f5);
+    border-radius: 4px;
+    transition: width 0.4s ease;
+}
+
+.bgd-progress-label {
+    font-size: 12px;
+    color: #666;
+    margin-top: 4px;
+    text-align: center;
+}
+
+/* ── Banners ── */
+.bgd-banner {
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.bgd-banner--info {
+    background: #e3f2fd;
+    border-left: 4px solid #1976d2;
+    color: #0d47a1;
+}
+
+.bgd-banner--error {
+    background: #fdecea;
+    border-left: 4px solid #d32f2f;
+    color: #b71c1c;
+}
+
+.bgd-banner-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: inherit;
+    padding: 0 4px;
+    line-height: 1;
+    opacity: 0.7;
+}
+
+.bgd-banner-close:hover {
+    opacity: 1;
+}
+
+/* ══════════════════════════════════════════════
+   Progress Log
+   ══════════════════════════════════════════════ */
+
+.bgd-log-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.bgd-log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.bgd-log-count {
+    font-weight: 400;
+    color: #999;
+}
+
+.bgd-log-clear {
+    font-size: 12px;
+    color: #1976d2;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: inherit;
+}
+
+.bgd-log-clear:hover {
+    background: #e3f2fd;
+}
+
+.bgd-log-area {
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    flex: 1;
+    min-height: 420px;
+    max-height: 600px;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.bgd-log-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 200px;
+    color: #999;
+    font-size: 14px;
+    font-style: italic;
+}
+
+/* Log entries */
+.bgd-log-entry {
+    display: flex;
+    align-items: flex-start;
+    padding: 7px 14px;
+    border-left: 3px solid transparent;
+    font-size: 13px;
+    line-height: 1.5;
+    transition: background-color 0.15s;
+}
+
+.bgd-log-entry:hover {
+    background: #eef1f4;
+}
+
+.bgd-log-entry + .bgd-log-entry {
+    border-top: 1px solid #eee;
+}
+
+.bgd-log-dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 10px;
+    margin-top: 5px;
+}
+
+.bgd-log-time {
+    flex-shrink: 0;
+    width: 78px;
+    font-size: 11px;
+    font-family: "Menlo", "Consolas", monospace;
+    color: #999;
+    padding-top: 1px;
+}
+
+.bgd-log-message {
+    flex: 1;
+    color: #394049;
+    word-break: break-word;
+}
+
+/* Log type colors */
+.bgd-log-entry--info {
+    border-left-color: #1976d2;
+}
+.bgd-log-entry--info .bgd-log-dot {
+    background: #1976d2;
+}
+
+.bgd-log-entry--success {
+    border-left-color: #2e7d32;
+    background: #f1f8f2;
+}
+.bgd-log-entry--success .bgd-log-dot {
+    background: #2e7d32;
+}
+.bgd-log-entry--success .bgd-log-message {
+    color: #1b5e20;
+    font-weight: 500;
+}
+
+.bgd-log-entry--error {
+    border-left-color: #d32f2f;
+    background: #fef2f2;
+}
+.bgd-log-entry--error .bgd-log-dot {
+    background: #d32f2f;
+}
+.bgd-log-entry--error .bgd-log-message {
+    color: #b71c1c;
+    font-weight: 500;
+}
+
+.bgd-log-entry--warn {
+    border-left-color: #f57c00;
+    background: #fff8f0;
+}
+.bgd-log-entry--warn .bgd-log-dot {
+    background: #f57c00;
+}
+.bgd-log-entry--warn .bgd-log-message {
+    color: #e65100;
+}
+
+/* ── Button Row ── */
+.bgd-btn-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.bgd-btn-row .bgd-btn-full {
+    flex: 1;
+}
