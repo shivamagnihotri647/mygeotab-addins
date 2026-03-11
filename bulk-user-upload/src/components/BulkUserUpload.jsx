@@ -4,14 +4,19 @@
  * Bulk-creates users in a MyGeotab database from a CSV file.
  * Features a template builder for selecting optional User fields,
  * drag-and-drop CSV upload, batched multiCall with rate limiting,
+ * HOS ruleset assignment, group name resolution, NFC key support,
  * and results export.
+ *
+ * Modeled after the Geotab SDK importUsers.html reference sample.
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
 
 // ── Constants ──
-const BATCH_SIZE = 100;
-const RATE_LIMIT_PAUSE_MS = 61_000;
+// Add:User rate limit is 250 calls/min (~4/sec).
+// Batch size 4 with 1s delay = 240 calls/min (safe margin).
+const BATCH_SIZE = 4;
+const BATCH_DELAY_MS = 1000;
 
 const MANDATORY_FIELDS = ["name", "firstName", "lastName"];
 
@@ -34,6 +39,10 @@ const OPTIONAL_FIELD_GROUPS = [
         fields: [
             "isDriver",
             "hosRuleSet",
+            "nfcKey",
+            "customNfcKey",
+            "licenseNumber",
+            "licenseProvince",
             "authorityName",
             "authorityAddress",
             "carrierNumber",
@@ -75,6 +84,7 @@ const OPTIONAL_FIELD_GROUPS = [
             "password",
             "userAuthenticationType",
             "changePassword",
+            "sendWelcomeEmail",
             "activeFrom",
             "activeTo",
             "isEmailReportEnabled",
@@ -93,6 +103,7 @@ const BOOLEAN_FIELDS = new Set([
     "isPersonalConveyanceEnabled",
     "isYardMoveEnabled",
     "changePassword",
+    "sendWelcomeEmail",
     "isEmailReportEnabled",
     "isNewsEnabled",
     "isLabsEnabled",
@@ -107,6 +118,10 @@ const GROUP_FIELDS = new Set([
 
 const NUMBER_FIELDS = new Set(["maxPCDistancePerDay"]);
 
+// Fields that should NOT be set on the User entity directly
+// (hosRuleSet is added as a separate UserHosRuleSet entity after user creation)
+const NON_ENTITY_FIELDS = new Set(["hosRuleSet", "nfcKey", "customNfcKey"]);
+
 const DEFAULT_CONFIG = {
     timeZoneId: "America/Chicago",
     fuelEconomyUnit: "MPGUS",
@@ -115,6 +130,8 @@ const DEFAULT_CONFIG = {
     password: "",
     companyGroups: "GroupCompanyId",
     securityGroups: "GroupDriveUserSecurityId",
+    changePassword: false,
+    delayVerificationEmail: false,
 };
 
 // ══════════════════════════════════════════════════════════════
@@ -173,7 +190,6 @@ function parseCsvLine(line) {
 
 /** Parse CSV text with header row into array of objects */
 function parseCsvWithHeaders(text) {
-    // Strip BOM
     const clean = text.replace(/^\uFEFF/, "");
     const lines = clean.split(/\r?\n/).filter((l) => l.trim());
     if (lines.length < 1) return { headers: [], rows: [] };
@@ -220,7 +236,6 @@ function generateResultsCsv(users, headers) {
             if (col === "status") return user._status || "";
             if (col === "error") return user._error || "";
             const val = user[col] || "";
-            // Quote if contains comma or quotes
             if (val.includes(",") || val.includes('"')) {
                 return '"' + val.replace(/"/g, '""') + '"';
             }
@@ -233,18 +248,87 @@ function generateResultsCsv(users, headers) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// Entity Builder
+// Password Generation
 // ══════════════════════════════════════════════════════════════
 
-/** Parse comma-separated group IDs into [{id: ...}] */
-function parseGroupIds(value) {
-    if (!value) return null;
-    return value
-        .split(",")
-        .map((id) => id.trim())
-        .filter(Boolean)
-        .map((id) => ({ id }));
+/** Generate a temporary random password that meets MyGeotab complexity requirements */
+function generateTemporaryPassword() {
+    const length = 16;
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+    let password = "Aa1!"; // Ensure complexity requirements met
+    const randomValues = new Uint32Array(length - 4);
+    window.crypto.getRandomValues(randomValues);
+    for (let i = 0; i < randomValues.length; i++) {
+        password += charset.charAt(randomValues[i] % charset.length);
+    }
+    // Shuffle using crypto
+    const arr = password.split("");
+    const shuffleRandom = new Uint32Array(arr.length);
+    window.crypto.getRandomValues(shuffleRandom);
+    const indexed = arr.map((ch, i) => ({ ch, r: shuffleRandom[i] }));
+    indexed.sort((a, b) => a.r - b.r);
+    return indexed.map((x) => x.ch).join("");
 }
+
+// ══════════════════════════════════════════════════════════════
+// Error Message Parsing
+// ══════════════════════════════════════════════════════════════
+
+/** Map common MyGeotab API errors to user-friendly messages */
+function parseErrorMessage(error) {
+    const s = String(error);
+    if (s.indexOf("checksum") >= 0) return "NFC driver key entered incorrectly";
+    if (s.indexOf("Index was outside") >= 0) return "Custom NFC driver key entered incorrectly";
+    if (s.indexOf("DuplicateUserException") >= 0) return "User name already exists";
+    if (s.indexOf("DuplicateException") >= 0) return "Driver key already exists";
+    if (s.indexOf("The password cannot contain the username") >= 0)
+        return "Password cannot contain username, first name or last name";
+    if (s.indexOf("Password policy requires") >= 0) return "Password must be at least 8 characters";
+    if (s.indexOf("Common passwords") >= 0) return "Common passwords are not allowed";
+    if (s.indexOf("CompanyGroups cannot be null or empty") >= 0) return "Invalid group name";
+    if (s.indexOf("SecurityGroups") >= 0) return "Invalid security clearance";
+    return s.length > 120 ? s.substring(0, 120) + "..." : s;
+}
+
+// ══════════════════════════════════════════════════════════════
+// Group Resolution
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Resolve pipe-separated group names/IDs into [{id: ...}] array.
+ * Tries name lookup in groupCache first, falls back to raw ID.
+ */
+function resolveGroups(value, groupCache) {
+    if (!value) return null;
+    const parts = value.split("|").map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) return null;
+
+    const result = [];
+    for (const part of parts) {
+        if (groupCache && groupCache[part]) {
+            result.push({ id: groupCache[part].id });
+        } else {
+            // Treat as raw ID
+            result.push({ id: part });
+        }
+    }
+    return result.length > 0 ? result : null;
+}
+
+/**
+ * Resolve pipe-separated security group IDs into [{id: ...}] array.
+ * Security groups are always referenced by ID.
+ */
+function resolveSecurityGroups(value) {
+    if (!value) return null;
+    const parts = value.split("|").map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) return null;
+    return parts.map((id) => ({ id }));
+}
+
+// ══════════════════════════════════════════════════════════════
+// Entity Builder
+// ══════════════════════════════════════════════════════════════
 
 /** Coerce a string value to the appropriate JS type */
 function coerceValue(field, value) {
@@ -252,115 +336,235 @@ function coerceValue(field, value) {
 
     if (BOOLEAN_FIELDS.has(field)) {
         const lower = value.toString().toLowerCase();
-        return lower === "true" || lower === "1" || lower === "yes";
+        return lower === "true" || lower === "1" || lower === "yes" || lower === "on";
     }
     if (NUMBER_FIELDS.has(field)) {
         const num = parseFloat(value);
         return isNaN(num) ? undefined : num;
     }
-    if (GROUP_FIELDS.has(field)) {
-        return parseGroupIds(value);
-    }
+    // Group fields are handled separately via resolveGroups
     return value;
 }
 
-/** Build a MyGeotab User entity from a CSV row + defaults */
-function buildUserEntity(row, csvHeaders, defaults) {
+/**
+ * Build a MyGeotab User entity from a CSV row + defaults + caches.
+ * Returns { entity, hosRuleSet } — hosRuleSet is added as a separate entity post-creation.
+ */
+function buildUserEntity(row, csvHeaders, defaults, groupCache) {
     const entity = {
         name: row.name,
         firstName: row.firstName,
         lastName: row.lastName,
+        // Always set these defaults (matching SDK behavior)
+        userAuthenticationType: "BasicAuthentication",
+        activeFrom: new Date().toISOString(),
+        activeTo: "2050-01-01T00:00:00.000Z",
     };
 
-    // Apply defaults first
+    // Apply config defaults
     if (defaults.timeZoneId) entity.timeZoneId = defaults.timeZoneId;
     if (defaults.fuelEconomyUnit) entity.fuelEconomyUnit = defaults.fuelEconomyUnit;
     if (defaults.isMetric !== undefined) entity.isMetric = defaults.isMetric;
     if (defaults.isDriver !== undefined) entity.isDriver = defaults.isDriver;
-    if (defaults.password) entity.password = defaults.password;
-    if (defaults.companyGroups) {
-        entity.companyGroups = parseGroupIds(defaults.companyGroups);
-    }
-    if (defaults.securityGroups) {
-        entity.securityGroups = parseGroupIds(defaults.securityGroups);
+
+    // Password handling
+    if (defaults.password) {
+        entity.password = defaults.password;
+    } else if (defaults.changePassword) {
+        // No password + force change → generate temporary password
+        entity.password = generateTemporaryPassword();
     }
 
-    // Override with CSV column values (skip mandatory — already set)
+    // changePassword default
+    if (defaults.changePassword) {
+        entity.changePassword = true;
+    }
+
+    // Delay verification email
+    if (defaults.delayVerificationEmail) {
+        entity.sendWelcomeEmail = false;
+    }
+
+    // Default groups — resolve names via cache
+    if (defaults.companyGroups) {
+        entity.companyGroups = resolveGroups(defaults.companyGroups, groupCache);
+    }
+    if (defaults.securityGroups) {
+        entity.securityGroups = resolveSecurityGroups(defaults.securityGroups);
+    }
+
+    // Track hosRuleSet separately (added as UserHosRuleSet after user creation)
+    let hosRuleSet = null;
+
+    // Override with CSV column values
     for (const header of csvHeaders) {
         if (MANDATORY_FIELDS.includes(header)) continue;
         const rawValue = row[header];
         if (rawValue === "" || rawValue === undefined) continue;
 
+        // hosRuleSet → track separately, don't set on entity
+        if (header === "hosRuleSet") {
+            hosRuleSet = rawValue;
+            continue;
+        }
+
+        // NFC keys → handled below
+        if (header === "nfcKey" || header === "customNfcKey") continue;
+
+        // Group fields → resolve via cache
+        if (GROUP_FIELDS.has(header)) {
+            if (header === "securityGroups") {
+                const resolved = resolveSecurityGroups(rawValue);
+                if (resolved) entity.securityGroups = resolved;
+            } else {
+                const resolved = resolveGroups(rawValue, groupCache);
+                if (resolved) entity[header] = resolved;
+            }
+            continue;
+        }
+
+        // Standard field coercion
         const coerced = coerceValue(header, rawValue);
         if (coerced !== undefined) {
             entity[header] = coerced;
         }
     }
 
-    return entity;
+    // Password from CSV overrides default
+    if (csvHeaders.includes("password") && row.password) {
+        entity.password = row.password;
+    } else if (!entity.password && entity.changePassword) {
+        // changePassword set but still no password → generate one
+        entity.password = generateTemporaryPassword();
+    }
+
+    // sendWelcomeEmail from CSV overrides default
+    if (csvHeaders.includes("sendWelcomeEmail") && row.sendWelcomeEmail) {
+        const val = row.sendWelcomeEmail.toString().toLowerCase();
+        entity.sendWelcomeEmail = val === "true" || val === "1" || val === "yes";
+    }
+
+    // NFC keys → build keys array + auto-detect driver
+    const nfcKey = row.nfcKey || "";
+    const customNfcKey = row.customNfcKey || "";
+    const keys = [];
+
+    if (nfcKey) {
+        keys.push({
+            serialNumber: nfcKey,
+            driverKeyType: "Nfc",
+            isImmobilizeOnly: true,
+        });
+    }
+    if (customNfcKey) {
+        const num = parseFloat(customNfcKey);
+        if (!isNaN(num) && num > 0 && num < 72057594037927940) {
+            keys.push({
+                serialNumber: customNfcKey,
+                driverKeyType: "CustomNfc",
+                isImmobilizeOnly: true,
+            });
+        }
+    }
+
+    if (keys.length > 0) {
+        entity.keys = keys;
+        entity.isDriver = true;
+        entity.driverGroups = entity.companyGroups;
+        entity.viewDriversOwnDataOnly = false;
+    }
+
+    // License number → auto-detect driver
+    const licenseNumber = row.licenseNumber || "";
+    if (licenseNumber) {
+        entity.licenseNumber = licenseNumber;
+        entity.isDriver = true;
+        entity.driverGroups = entity.companyGroups;
+        entity.viewDriversOwnDataOnly = false;
+    }
+
+    const licenseProvince = row.licenseProvince || "";
+    if (licenseProvince) {
+        entity.licenseProvince = licenseProvince;
+    }
+
+    return { entity, hosRuleSet };
 }
 
 // ══════════════════════════════════════════════════════════════
-// Batched MultiCall with Rate Limiting
+// Batched Upload with Rate Limiting
 // ══════════════════════════════════════════════════════════════
 
-function countdownPause(ms, onTick) {
-    return new Promise((resolve) => {
-        const start = Date.now();
-        const iv = setInterval(() => {
-            const remaining = Math.max(0, ms - (Date.now() - start));
-            if (onTick) onTick(Math.ceil(remaining / 1000));
-            if (remaining <= 0) {
-                clearInterval(iv);
-                if (onTick) onTick(0);
-                resolve();
-            }
-        }, 1000);
-    });
+function batchDelay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function batchedMultiCall(api, calls, addLog, onCountdown, onBatchDone) {
+async function batchedUpload(api, calls, hosRuleSetMap, addLog, onProgress) {
     const allResults = [];
+    const totalBatches = Math.ceil(calls.length / BATCH_SIZE);
 
     for (let i = 0; i < calls.length; i += BATCH_SIZE) {
         const batch = calls.slice(i, i + BATCH_SIZE);
         const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(calls.length / BATCH_SIZE);
 
-        addLog(`Processing batch ${batchNum}/${totalBatches} (${batch.length} users)...`, "info");
+        if (totalBatches > 1) {
+            addLog(`Batch ${batchNum}/${totalBatches} (${batch.length} users)...`, "info");
+        }
 
         try {
             const results = await apiMultiCall(api, batch);
-            // multiCall succeeded — all items in batch succeeded
             for (let j = 0; j < batch.length; j++) {
-                allResults.push({ index: i + j, success: true, result: results[j] });
+                allResults.push({ index: i + j, success: true, userId: results[j] });
             }
-            if (onBatchDone) onBatchDone(i + batch.length);
         } catch (err) {
-            addLog(`Batch ${batchNum} multiCall failed. Falling back to sequential calls...`, "warn");
-            // Fall back to individual calls
+            addLog(`Batch ${batchNum} failed, processing individually...`, "warn");
             for (let j = 0; j < batch.length; j++) {
                 try {
-                    const result = await apiCall(api, "Add", {
-                        typeName: "User",
-                        entity: batch[j][1].entity,
-                    });
-                    allResults.push({ index: i + j, success: true, result });
+                    const result = await apiCall(api, "Add", batch[j][1]);
+                    allResults.push({ index: i + j, success: true, userId: result });
                 } catch (singleErr) {
-                    const errMsg =
-                        typeof singleErr === "object" && singleErr !== null
-                            ? singleErr.message || JSON.stringify(singleErr)
-                            : String(singleErr);
-                    allResults.push({ index: i + j, success: false, error: errMsg });
+                    allResults.push({
+                        index: i + j,
+                        success: false,
+                        error: parseErrorMessage(singleErr),
+                    });
                 }
-                if (onBatchDone) onBatchDone(i + j + 1);
             }
         }
 
-        // Rate limit pause between batches
+        if (onProgress) onProgress(Math.min(i + batch.length, calls.length));
+
+        // Delay before next batch
         if (i + BATCH_SIZE < calls.length) {
-            addLog(`Rate limit: waiting 61s before next batch...`, "warn");
-            await countdownPause(RATE_LIMIT_PAUSE_MS, onCountdown);
+            await batchDelay(BATCH_DELAY_MS);
+        }
+    }
+
+    // ── Post-creation: Add HOS Rulesets ──
+    const hosCalls = [];
+    for (const r of allResults) {
+        if (r.success && hosRuleSetMap[r.index]) {
+            hosCalls.push([
+                "Add",
+                {
+                    typeName: "UserHosRuleSet",
+                    entity: {
+                        dateTime: new Date().toISOString(),
+                        hosRuleSet: { id: hosRuleSetMap[r.index] },
+                        user: { id: r.userId },
+                    },
+                },
+            ]);
+        }
+    }
+
+    if (hosCalls.length > 0) {
+        addLog(`Assigning HOS rulesets to ${hosCalls.length} users...`, "info");
+        try {
+            await apiMultiCall(api, hosCalls);
+            addLog(`HOS rulesets assigned successfully`, "success");
+        } catch (hosErr) {
+            addLog(`Warning: Failed to assign some HOS rulesets: ${parseErrorMessage(hosErr)}`, "warn");
         }
     }
 
@@ -442,7 +646,7 @@ function TemplateBuilder({ selectedFields, onToggleField, onSelectAll, onClearAl
     );
 }
 
-function DefaultsPanel({ defaults, onChange }) {
+function DefaultsPanel({ defaults, onChange, timeZones }) {
     const [open, setOpen] = useState(false);
 
     return (
@@ -457,15 +661,30 @@ function DefaultsPanel({ defaults, onChange }) {
                 <div className="buu-defaults-body">
                     <p style={{ fontSize: 12, color: "#666", margin: "0 0 10px" }}>
                         These defaults apply to all users unless overridden by a CSV column value.
+                        Groups use pipe <code>|</code> separator (e.g. <code>Drivers|West</code>).
                     </p>
                     <div className="buu-defaults-grid">
                         <div className="buu-input-group">
                             <label className="buu-input-label">timeZoneId</label>
-                            <input
-                                className="buu-input"
-                                value={defaults.timeZoneId}
-                                onChange={(e) => onChange("timeZoneId", e.target.value)}
-                            />
+                            {timeZones.length > 0 ? (
+                                <select
+                                    className="buu-select"
+                                    value={defaults.timeZoneId}
+                                    onChange={(e) => onChange("timeZoneId", e.target.value)}
+                                >
+                                    {timeZones.map((tz) => (
+                                        <option key={tz.id} value={tz.id}>
+                                            {tz.id}
+                                        </option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <input
+                                    className="buu-input"
+                                    value={defaults.timeZoneId}
+                                    onChange={(e) => onChange("timeZoneId", e.target.value)}
+                                />
+                            )}
                         </div>
                         <div className="buu-input-group">
                             <label className="buu-input-label">fuelEconomyUnit</label>
@@ -474,26 +693,28 @@ function DefaultsPanel({ defaults, onChange }) {
                                 value={defaults.fuelEconomyUnit}
                                 onChange={(e) => onChange("fuelEconomyUnit", e.target.value)}
                             >
-                                <option value="MPGUS">MPGUS</option>
-                                <option value="MPGUK">MPGUK</option>
-                                <option value="LitresPer100Km">LitresPer100Km</option>
-                                <option value="KmPerLitre">KmPerLitre</option>
+                                <option value="MPGUS">MPG (US)</option>
+                                <option value="MPGImperial">MPG (Imperial)</option>
+                                <option value="LitersPer100Km">L/100 km</option>
+                                <option value="KmPerLiter">km/L</option>
                             </select>
                         </div>
                         <div className="buu-input-group">
-                            <label className="buu-input-label">companyGroups (comma-sep IDs)</label>
+                            <label className="buu-input-label">companyGroups (pipe-separated names or IDs)</label>
                             <input
                                 className="buu-input"
                                 value={defaults.companyGroups}
                                 onChange={(e) => onChange("companyGroups", e.target.value)}
+                                placeholder="GroupCompanyId"
                             />
                         </div>
                         <div className="buu-input-group">
-                            <label className="buu-input-label">securityGroups (comma-sep IDs)</label>
+                            <label className="buu-input-label">securityGroups (pipe-separated IDs)</label>
                             <input
                                 className="buu-input"
                                 value={defaults.securityGroups}
                                 onChange={(e) => onChange("securityGroups", e.target.value)}
+                                placeholder="GroupDriveUserSecurityId"
                             />
                         </div>
                         <div className="buu-input-group">
@@ -503,11 +724,11 @@ function DefaultsPanel({ defaults, onChange }) {
                                 type="password"
                                 value={defaults.password}
                                 onChange={(e) => onChange("password", e.target.value)}
-                                placeholder="(empty = user must set)"
+                                placeholder="(empty = auto-generated if changePassword on)"
                             />
                         </div>
                     </div>
-                    <div style={{ display: "flex", gap: 24, marginTop: 10 }}>
+                    <div className="buu-checkbox-grid">
                         <div className="buu-checkbox-row">
                             <input
                                 type="checkbox"
@@ -526,6 +747,24 @@ function DefaultsPanel({ defaults, onChange }) {
                             />
                             <label htmlFor="def-isMetric">isMetric</label>
                         </div>
+                        <div className="buu-checkbox-row">
+                            <input
+                                type="checkbox"
+                                id="def-changePassword"
+                                checked={defaults.changePassword}
+                                onChange={(e) => onChange("changePassword", e.target.checked)}
+                            />
+                            <label htmlFor="def-changePassword">Force password change on next login</label>
+                        </div>
+                        <div className="buu-checkbox-row">
+                            <input
+                                type="checkbox"
+                                id="def-delayEmail"
+                                checked={defaults.delayVerificationEmail}
+                                onChange={(e) => onChange("delayVerificationEmail", e.target.checked)}
+                            />
+                            <label htmlFor="def-delayEmail">Delay verification email</label>
+                        </div>
                     </div>
                 </div>
             )}
@@ -536,7 +775,6 @@ function DefaultsPanel({ defaults, onChange }) {
 function UserTable({ users, csvHeaders }) {
     if (!users || users.length === 0) return null;
 
-    // Show mandatory fields + status, limit extra columns to keep readable
     const displayCols = [...MANDATORY_FIELDS];
     for (const h of csvHeaders) {
         if (!MANDATORY_FIELDS.includes(h) && displayCols.length < 6) {
@@ -588,6 +826,11 @@ export default function BulkUserUpload({ geotabApi }) {
     // Defaults state
     const [defaults, setDefaults] = useState({ ...DEFAULT_CONFIG });
 
+    // API data caches
+    const [groupCache, setGroupCache] = useState(null); // { name → group object }
+    const [timeZones, setTimeZones] = useState([]);
+    const [apiDataLoaded, setApiDataLoaded] = useState(false);
+
     // CSV / file state
     const [dragOver, setDragOver] = useState(false);
     const [fileName, setFileName] = useState("");
@@ -598,7 +841,6 @@ export default function BulkUserUpload({ geotabApi }) {
     const [processing, setProcessing] = useState(false);
     const [progress, setProgress] = useState(0);
     const [progressTotal, setProgressTotal] = useState(0);
-    const [countdown, setCountdown] = useState(0);
     const [completed, setCompleted] = useState(false);
 
     // Log state
@@ -614,6 +856,46 @@ export default function BulkUserUpload({ geotabApi }) {
     const addLog = useCallback((message, type = "info") => {
         setLogs((prev) => [...prev, { message, type, time: timestamp() }]);
     }, []);
+
+    // ── Fetch API data on mount ──
+    useEffect(() => {
+        if (!geotabApi) return;
+
+        let cancelled = false;
+
+        async function fetchData() {
+            try {
+                // Fetch groups
+                const groups = await apiCall(geotabApi, "Get", { typeName: "Group" });
+                if (cancelled) return;
+                const cache = {};
+                for (const g of groups) {
+                    const name = g.name || g.id;
+                    cache[name] = g;
+                }
+                setGroupCache(cache);
+
+                // Fetch time zones
+                const tzs = await apiCall(geotabApi, "GetTimeZones", {});
+                if (cancelled) return;
+                tzs.sort((a, b) => a.id.localeCompare(b.id));
+                setTimeZones(tzs);
+
+                setApiDataLoaded(true);
+                addLog(`Loaded ${groups.length} groups and ${tzs.length} time zones from database`, "info");
+            } catch (err) {
+                if (!cancelled) {
+                    addLog("Failed to load groups/time zones: " + parseErrorMessage(err), "error");
+                    // Still allow usage with raw IDs
+                    setGroupCache({});
+                    setApiDataLoaded(true);
+                }
+            }
+        }
+
+        fetchData();
+        return () => { cancelled = true; };
+    }, [geotabApi, addLog]);
 
     // ── Template Builder Handlers ──
     const handleToggleField = useCallback((field) => {
@@ -652,7 +934,6 @@ export default function BulkUserUpload({ geotabApi }) {
                 const text = e.target.result;
                 const { headers, rows } = parseCsvWithHeaders(text);
 
-                // Validate mandatory columns
                 const missing = MANDATORY_FIELDS.filter((f) => !headers.includes(f));
                 if (missing.length > 0) {
                     addLog(
@@ -667,14 +948,22 @@ export default function BulkUserUpload({ geotabApi }) {
                     return;
                 }
 
-                // Tag each row with status
                 const taggedRows = rows.map((row) => ({ ...row, _status: "pending", _error: "" }));
 
                 setFileName(file.name);
                 setCsvHeaders(headers);
                 setUsers(taggedRows);
                 setCompleted(false);
-                addLog(`Loaded ${rows.length} users from ${file.name} (${headers.length} columns)`, "success");
+
+                // Log helpful info about group columns
+                const groupCols = headers.filter((h) => GROUP_FIELDS.has(h));
+                const driverCols = headers.filter((h) =>
+                    ["nfcKey", "customNfcKey", "licenseNumber", "hosRuleSet"].includes(h)
+                );
+                let info = `Loaded ${rows.length} users from ${file.name} (${headers.length} columns)`;
+                if (groupCols.length > 0) info += ` | Groups: ${groupCols.join(", ")} (use pipe | separator for multiple)`;
+                if (driverCols.length > 0) info += ` | Driver fields: ${driverCols.join(", ")}`;
+                addLog(info, "success");
             };
             reader.readAsText(file);
         },
@@ -738,20 +1027,31 @@ export default function BulkUserUpload({ geotabApi }) {
 
         addLog(`Starting upload of ${users.length} users...`, "info");
 
-        // Build multiCall array
-        const calls = users.map((user) => {
-            const entity = buildUserEntity(user, csvHeaders, defaults);
-            return ["Add", { typeName: "User", entity }];
-        });
+        // Build multiCall array and track hosRuleSets
+        const calls = [];
+        const hosRuleSetMap = {}; // index → hosRuleSet value
+
+        for (let i = 0; i < users.length; i++) {
+            const { entity, hosRuleSet } = buildUserEntity(
+                users[i],
+                csvHeaders,
+                defaults,
+                groupCache
+            );
+            calls.push(["Add", { typeName: "User", entity }]);
+            if (hosRuleSet) {
+                hosRuleSetMap[i] = hosRuleSet;
+            }
+        }
 
         // Mark all as uploading
         setUsers((prev) => prev.map((u) => ({ ...u, _status: "uploading" })));
 
-        const results = await batchedMultiCall(
+        const results = await batchedUpload(
             geotabApi,
             calls,
+            hosRuleSetMap,
             addLog,
-            (sec) => setCountdown(sec),
             (done) => setProgress(done)
         );
 
@@ -780,8 +1080,7 @@ export default function BulkUserUpload({ geotabApi }) {
 
         setProcessing(false);
         setCompleted(true);
-        setCountdown(0);
-    }, [geotabApi, users, csvHeaders, defaults, addLog]);
+    }, [geotabApi, users, csvHeaders, defaults, groupCache, addLog]);
 
     // ── Download Results ──
     const handleDownloadResults = useCallback(() => {
@@ -796,6 +1095,13 @@ export default function BulkUserUpload({ geotabApi }) {
     return (
         <div className="buu-container">
             <h2>Bulk User Upload</h2>
+
+            {!apiDataLoaded && (
+                <div className="buu-banner buu-banner--info">
+                    Loading groups and time zones from database...
+                </div>
+            )}
+
             <div className="buu-layout">
                 {/* ── Left Panel: Controls ── */}
                 <div className="buu-controls-panel">
@@ -823,7 +1129,7 @@ export default function BulkUserUpload({ geotabApi }) {
                                 Drag & drop your CSV file here, or click to browse
                             </p>
                             <p className="buu-upload-subtext">
-                                CSV must include: {MANDATORY_FIELDS.join(", ")}
+                                CSV must include: {MANDATORY_FIELDS.join(", ")} | Groups use pipe <code>|</code> separator
                             </p>
                         </div>
                         <input
@@ -851,7 +1157,11 @@ export default function BulkUserUpload({ geotabApi }) {
                     <UserTable users={users} csvHeaders={csvHeaders} />
 
                     {/* Defaults */}
-                    <DefaultsPanel defaults={defaults} onChange={handleDefaultChange} />
+                    <DefaultsPanel
+                        defaults={defaults}
+                        onChange={handleDefaultChange}
+                        timeZones={timeZones}
+                    />
 
                     {/* Progress Bar */}
                     {processing && (
@@ -864,7 +1174,6 @@ export default function BulkUserUpload({ geotabApi }) {
                             </div>
                             <div className="buu-progress-label">
                                 {progress}/{progressTotal} users processed ({progressPct}%)
-                                {countdown > 0 && ` — rate limit pause: ${countdown}s`}
                             </div>
                         </div>
                     )}
