@@ -535,12 +535,19 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
 
             // Sync accessGroupFilter to match companyGroups
             // (MyGeotab requires all companyGroups to be visible in the user's accessGroupFilter)
-            user.accessGroupFilter = {
-                groupFilterCondition: {
-                    groupFilterConditions: newGroups.map(g => ({ group: g })),
-                    relation: "Or"
-                }
-            };
+            // Single group: use direct group ref. Multiple groups: use array with OR relation.
+            if (newGroups.length === 1) {
+                user.accessGroupFilter = {
+                    groupFilterCondition: { group: newGroups[0] }
+                };
+            } else {
+                user.accessGroupFilter = {
+                    groupFilterCondition: {
+                        groupFilterConditions: newGroups.map(g => ({ group: g })),
+                        relation: "Or"
+                    }
+                };
+            }
 
             // Sync driverGroups if user is a driver
             if (user.isDriver) {
