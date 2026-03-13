@@ -535,15 +535,15 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
 
             // Sync accessGroupFilter to match companyGroups
             // (MyGeotab requires all companyGroups to be visible in the user's accessGroupFilter)
-            // Single group: use direct group ref. Multiple groups: use array with OR relation.
+            // Leaf node uses `groupId` (string), branch node uses `groupFilterConditions` array with `relation`
             if (newGroups.length === 1) {
                 user.accessGroupFilter = {
-                    groupFilterCondition: { group: newGroups[0] }
+                    groupFilterCondition: { groupId: newGroups[0].id }
                 };
             } else {
                 user.accessGroupFilter = {
                     groupFilterCondition: {
-                        groupFilterConditions: newGroups.map(g => ({ group: g })),
+                        groupFilterConditions: newGroups.map(g => ({ groupId: g.id })),
                         relation: "Or"
                     }
                 };
