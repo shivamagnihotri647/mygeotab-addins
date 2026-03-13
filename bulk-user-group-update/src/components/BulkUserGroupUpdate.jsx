@@ -488,6 +488,51 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
         setCompleted(false);
     }, []);
 
+    // ── Build new GroupFilter condition for target groups ──
+    function buildGroupFilterCondition(groups) {
+        if (groups.length === 1) {
+            return { groupId: groups[0].id };
+        }
+        return {
+            relation: "Or",
+            groupFilterConditions: groups.map(g => ({ groupId: g.id })),
+        };
+    }
+
+    // ── Update a single user's groups (handles AccessGroupFilter properly) ──
+    async function updateSingleUser(api, userEntity, newGroups) {
+        const user = { ...userEntity };
+        user.companyGroups = newGroups;
+
+        if (user.isDriver) {
+            user.driverGroups = newGroups;
+        }
+
+        const existingFilterId = user.accessGroupFilter?.id;
+
+        if (existingFilterId) {
+            // User has an existing GroupFilter entity — fetch it, update its condition
+            const gfResults = await apiCall(api, "Get", {
+                typeName: "GroupFilter",
+                search: { id: existingFilterId },
+            });
+
+            if (gfResults.length > 0) {
+                const gf = gfResults[0];
+                user.accessGroupFilter = {
+                    ...gf,
+                    groupFilterCondition: buildGroupFilterCondition(newGroups),
+                };
+            } else {
+                // GroupFilter not found — clear it
+                user.accessGroupFilter = null;
+            }
+        }
+        // If no existing GroupFilter, don't set one — companyGroups alone is used
+
+        await apiCall(api, "Set", { typeName: "User", entity: user });
+    }
+
     // ── Update Groups Handler ──
     const handleUpdate = useCallback(async () => {
         if (!geotabApi || rows.length === 0) return;
@@ -510,9 +555,10 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
             prev.map((r) => (r.status === "ready" ? { ...r, status: "updating" } : r))
         );
 
-        // Build Set calls
-        const setCalls = [];
-        const rowIndices = []; // maps setCalls index → rows index
+        // Process users sequentially (each needs a GroupFilter fetch + Set)
+        let successCount = 0;
+        let failCount = 0;
+        let processed = 0;
 
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
@@ -526,120 +572,42 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
                     u[i] = { ...u[i], status: "failed", error: "Could not resolve group name(s)" };
                     return u;
                 });
+                failCount++;
+                processed++;
+                setProgress(processed);
                 continue;
             }
 
-            // Clone user entity and update groups
-            const user = { ...row._userEntity };
-
-            // Debug: log existing accessGroupFilter structure for first user
-            if (setCalls.length === 0) {
-                console.log("[BUGU DEBUG] Existing user entity keys:", Object.keys(user));
-                console.log("[BUGU DEBUG] Existing accessGroupFilter:", JSON.stringify(user.accessGroupFilter, null, 2));
-                console.log("[BUGU DEBUG] Existing companyGroups:", JSON.stringify(user.companyGroups, null, 2));
-                console.log("[BUGU DEBUG] Target newGroups:", JSON.stringify(newGroups, null, 2));
-            }
-
-            user.companyGroups = newGroups;
-
-            // Sync accessGroupFilter to match companyGroups
-            // (MyGeotab requires all companyGroups to be visible in the user's accessGroupFilter)
-            // Leaf node uses `groupId` (string), branch node uses `groupFilterConditions` array with `relation`
-            if (newGroups.length === 1) {
-                user.accessGroupFilter = {
-                    groupFilterCondition: { groupId: newGroups[0].id }
-                };
-            } else {
-                user.accessGroupFilter = {
-                    groupFilterCondition: {
-                        groupFilterConditions: newGroups.map(g => ({ groupId: g.id })),
-                        relation: "Or"
-                    }
-                };
-            }
-
-            // Debug: log what we're sending
-            if (setCalls.length === 0) {
-                console.log("[BUGU DEBUG] New accessGroupFilter:", JSON.stringify(user.accessGroupFilter, null, 2));
-                console.log("[BUGU DEBUG] Full entity being sent:", JSON.stringify(user, null, 2));
-            }
-
-            // Sync driverGroups if user is a driver
-            if (user.isDriver) {
-                user.driverGroups = newGroups;
-            }
-
-            setCalls.push(["Set", { typeName: "User", entity: user }]);
-            rowIndices.push(i);
-        }
-
-        if (setCalls.length === 0) {
-            addLog("No valid Set calls to execute", "warn");
-            setProcessing(false);
-            return;
-        }
-
-        // Batched execution
-        let successCount = 0;
-        let failCount = 0;
-        const totalBatches = Math.ceil(setCalls.length / BATCH_SIZE);
-
-        for (let i = 0; i < setCalls.length; i += BATCH_SIZE) {
-            const batch = setCalls.slice(i, i + BATCH_SIZE);
-            const batchIndices = rowIndices.slice(i, i + BATCH_SIZE);
-            const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-
-            if (totalBatches > 1) {
-                addLog(`Batch ${batchNum}/${totalBatches} (${batch.length} users)...`, "info");
-            }
-
             try {
-                await apiMultiCall(geotabApi, batch);
-                // All succeeded
-                for (let j = 0; j < batch.length; j++) {
-                    const rowIdx = batchIndices[j];
-                    setRows((prev) => {
-                        const u = [...prev];
-                        u[rowIdx] = { ...u[rowIdx], status: "success", error: "" };
-                        return u;
-                    });
-                    successCount++;
-                }
+                await updateSingleUser(geotabApi, row._userEntity, newGroups);
+                setRows((prev) => {
+                    const u = [...prev];
+                    u[i] = { ...u[i], status: "success", error: "" };
+                    return u;
+                });
+                successCount++;
             } catch (err) {
-                addLog(`Batch ${batchNum} failed, processing individually...`, "warn");
-                for (let j = 0; j < batch.length; j++) {
-                    const rowIdx = batchIndices[j];
-                    try {
-                        await apiCall(geotabApi, "Set", batch[j][1]);
-                        setRows((prev) => {
-                            const u = [...prev];
-                            u[rowIdx] = { ...u[rowIdx], status: "success", error: "" };
-                            return u;
-                        });
-                        successCount++;
-                    } catch (singleErr) {
-                        const errMsg = parseErrorMessage(singleErr);
-                        setRows((prev) => {
-                            const u = [...prev];
-                            u[rowIdx] = { ...u[rowIdx], status: "failed", error: errMsg };
-                            return u;
-                        });
-                        failCount++;
-                        addLog(`Failed: ${rows[rowIdx].username} — ${errMsg}`, "error");
-                    }
-                }
+                const errMsg = parseErrorMessage(err);
+                setRows((prev) => {
+                    const u = [...prev];
+                    u[i] = { ...u[i], status: "failed", error: errMsg };
+                    return u;
+                });
+                failCount++;
+                addLog(`Failed: ${row.username} — ${errMsg}`, "error");
             }
 
-            setProgress(Math.min(i + batch.length, setCalls.length));
+            processed++;
+            setProgress(processed);
 
-            // Delay before next batch
-            if (i + BATCH_SIZE < setCalls.length) {
+            // Rate limit delay every BATCH_SIZE users
+            if (processed % BATCH_SIZE === 0 && processed < updatable.length) {
                 await batchDelay(BATCH_DELAY_MS);
             }
         }
 
         addLog(
-            `Update complete: ${successCount} succeeded, ${failCount} failed out of ${setCalls.length} total`,
+            `Update complete: ${successCount} succeeded, ${failCount} failed out of ${successCount + failCount} total`,
             failCount > 0 ? "warn" : "success"
         );
 
