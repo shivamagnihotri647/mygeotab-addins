@@ -135,6 +135,7 @@ function formatGroups(groups, groupIdToName) {
 function parseErrorMessage(error) {
     const s = String(error);
     if (s.indexOf("CompanyGroups cannot be null or empty") >= 0) return "Invalid group name";
+    if (s.indexOf("CompanyGroups must be visible to User's AccessGroupFilter") >= 0) return "AccessGroupFilter mismatch — groups not visible";
     if (s.indexOf("SecurityGroups") >= 0) return "Invalid security clearance";
     if (s.indexOf("DuplicateException") >= 0) return "Duplicate entity conflict";
     return s.length > 120 ? s.substring(0, 120) + "..." : s;
@@ -531,6 +532,15 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
             // Clone user entity and update groups
             const user = { ...row._userEntity };
             user.companyGroups = newGroups;
+
+            // Sync accessGroupFilter to match companyGroups
+            // (MyGeotab requires all companyGroups to be visible in the user's accessGroupFilter)
+            user.accessGroupFilter = {
+                groupFilterCondition: {
+                    groupFilterConditions: newGroups.map(g => ({ group: g })),
+                    relation: "Or"
+                }
+            };
 
             // Sync driverGroups if user is a driver
             if (user.isDriver) {
