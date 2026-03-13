@@ -531,6 +531,15 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
 
             // Clone user entity and update groups
             const user = { ...row._userEntity };
+
+            // Debug: log existing accessGroupFilter structure for first user
+            if (setCalls.length === 0) {
+                console.log("[BUGU DEBUG] Existing user entity keys:", Object.keys(user));
+                console.log("[BUGU DEBUG] Existing accessGroupFilter:", JSON.stringify(user.accessGroupFilter, null, 2));
+                console.log("[BUGU DEBUG] Existing companyGroups:", JSON.stringify(user.companyGroups, null, 2));
+                console.log("[BUGU DEBUG] Target newGroups:", JSON.stringify(newGroups, null, 2));
+            }
+
             user.companyGroups = newGroups;
 
             // Sync accessGroupFilter to match companyGroups
@@ -547,6 +556,12 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
                         relation: "Or"
                     }
                 };
+            }
+
+            // Debug: log what we're sending
+            if (setCalls.length === 0) {
+                console.log("[BUGU DEBUG] New accessGroupFilter:", JSON.stringify(user.accessGroupFilter, null, 2));
+                console.log("[BUGU DEBUG] Full entity being sent:", JSON.stringify(user, null, 2));
             }
 
             // Sync driverGroups if user is a driver
