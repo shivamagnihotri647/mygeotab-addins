@@ -511,7 +511,7 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
         const existingFilterId = user.accessGroupFilter?.id;
 
         if (existingFilterId) {
-            // User has an existing GroupFilter entity — fetch it, update its condition
+            // User has an existing GroupFilter entity — update it directly via Set:GroupFilter
             const gfResults = await apiCall(api, "Get", {
                 typeName: "GroupFilter",
                 search: { id: existingFilterId },
@@ -519,16 +519,10 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
 
             if (gfResults.length > 0) {
                 const gf = gfResults[0];
-                user.accessGroupFilter = {
-                    ...gf,
-                    groupFilterCondition: buildGroupFilterCondition(newGroups),
-                };
-            } else {
-                // GroupFilter not found — clear it
-                user.accessGroupFilter = null;
+                gf.groupFilterCondition = buildGroupFilterCondition(newGroups);
+                await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
             }
         }
-        // If no existing GroupFilter, don't set one — companyGroups alone is used
 
         await apiCall(api, "Set", { typeName: "User", entity: user });
     }
