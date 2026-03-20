@@ -532,57 +532,29 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
 
     // ── Update a single user's groups ──
     async function updateSingleUser(api, userEntity, newGroups, addLog) {
-        // Step 1: Re-fetch user fresh
-        let users = await apiCall(api, "Get", {
+        // Re-fetch user fresh
+        const users = await apiCall(api, "Get", {
             typeName: "User",
             search: { name: userEntity.name },
         });
         if (!users || users.length === 0) {
             throw new Error("User not found: " + userEntity.name);
         }
-        let user = users[0];
+        const user = users[0];
 
-        // Step 2: If user has an AccessGroupFilter, widen it to root so all groups are visible
-        const existingFilterId = user.accessGroupFilter?.id;
-        if (existingFilterId) {
-            const gfResults = await apiCall(api, "Get", {
-                typeName: "GroupFilter",
-                search: { id: existingFilterId },
-            });
-            if (gfResults.length > 0) {
-                const gf = gfResults[0];
-                // Set filter to root company group — makes ALL groups visible
-                gf.groupFilterCondition = { groupId: "GroupCompanyId" };
-                await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
-            }
-
-            // Re-fetch user after widening filter
-            users = await apiCall(api, "Get", {
-                typeName: "User",
-                search: { name: userEntity.name },
-            });
-            user = users[0];
-        }
-
-        // Step 3: Set companyGroups (filter now allows everything)
+        // Set new companyGroups
         user.companyGroups = newGroups;
         if (user.isDriver) {
             user.driverGroups = newGroups;
         }
-        await apiCall(api, "Set", { typeName: "User", entity: user });
 
-        // Step 4: Tighten the filter back to match the new companyGroups
-        if (existingFilterId) {
-            const gfResults = await apiCall(api, "Get", {
-                typeName: "GroupFilter",
-                search: { id: existingFilterId },
-            });
-            if (gfResults.length > 0) {
-                const gf = gfResults[0];
-                gf.groupFilterCondition = buildGroupFilterCondition(newGroups);
-                await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
-            }
+        // If user has an accessGroupFilter, nullify it (same approach as MyGeotab UI)
+        if (user.accessGroupFilter?.id) {
+            delete user.accessGroupFilter;
+            user.nullifyAccessGroupFilter = true;
         }
+
+        await apiCall(api, "Set", { typeName: "User", entity: user });
     }
 
     // ── Update Groups Handler ──
