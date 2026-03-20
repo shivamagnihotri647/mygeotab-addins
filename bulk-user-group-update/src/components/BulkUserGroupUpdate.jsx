@@ -530,7 +530,7 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
         };
     }
 
-    // ── Update a single user's groups (handles AccessGroupFilter properly) ──
+    // ── Update a single user's groups ──
     async function updateSingleUser(api, userEntity, newGroups, addLog) {
         // Step 1: Re-fetch user fresh
         const freshUsers = await apiCall(api, "Get", {
@@ -538,42 +538,35 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
             search: { name: userEntity.name },
         });
         if (!freshUsers || freshUsers.length === 0) {
-            throw new Error("User not found on re-fetch: " + userEntity.name);
+            throw new Error("User not found: " + userEntity.name);
         }
         const user = freshUsers[0];
 
-        // Step 2: Update GroupFilter FIRST so new groups become visible
+        // Step 2: Remove AccessGroupFilter if present (unblocks companyGroups change)
         const existingFilterId = user.accessGroupFilter?.id;
         if (existingFilterId) {
-            const gfResults = await apiCall(api, "Get", {
+            await apiCall(api, "Remove", {
                 typeName: "GroupFilter",
-                search: { id: existingFilterId },
+                entity: { id: existingFilterId },
             });
 
-            if (gfResults.length > 0) {
-                const gf = gfResults[0];
-                gf.groupFilterCondition = buildGroupFilterCondition(newGroups);
-                await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
+            // Re-fetch user after filter removal
+            const refreshed = await apiCall(api, "Get", {
+                typeName: "User",
+                search: { name: userEntity.name },
+            });
+            if (refreshed.length > 0) {
+                Object.assign(user, refreshed[0]);
             }
         }
 
-        // Step 3: Re-fetch user AGAIN after GroupFilter change (entity is now stale)
-        const refreshedUsers = await apiCall(api, "Get", {
-            typeName: "User",
-            search: { name: userEntity.name },
-        });
-        if (!refreshedUsers || refreshedUsers.length === 0) {
-            throw new Error("User not found on second re-fetch: " + userEntity.name);
-        }
-        const updatedUser = refreshedUsers[0];
-
-        // Step 4: Now set companyGroups (filter already allows these groups)
-        updatedUser.companyGroups = newGroups;
-        if (updatedUser.isDriver) {
-            updatedUser.driverGroups = newGroups;
+        // Step 3: Set companyGroups (no filter blocking now)
+        user.companyGroups = newGroups;
+        if (user.isDriver) {
+            user.driverGroups = newGroups;
         }
 
-        await apiCall(api, "Set", { typeName: "User", entity: updatedUser });
+        await apiCall(api, "Set", { typeName: "User", entity: user });
     }
 
     // ── Update Groups Handler ──
