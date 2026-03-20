@@ -554,6 +554,20 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
             user.nullifyAccessGroupFilter = true;
         }
 
+        // Sanitize entity to avoid GenericException on auto-created users
+        // Phone number must be a string (not null)
+        if (!user.phoneNumber && user.phoneNumber !== "") user.phoneNumber = "";
+        if (!user.phoneNumberExtension && user.phoneNumberExtension !== "") user.phoneNumberExtension = "";
+        // Strip read-only properties returned by Get but rejected by Set
+        delete user.isAutoAdded;
+        // Clean up group objects (strip name, keep only id)
+        if (user.securityGroups) {
+            user.securityGroups = user.securityGroups.map(g => ({ id: g.id }));
+        }
+        if (user.issuerCertificate) {
+            user.issuerCertificate = { id: user.issuerCertificate.id };
+        }
+
         await apiCall(api, "Set", { typeName: "User", entity: user });
     }
 
