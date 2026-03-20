@@ -542,12 +542,21 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
         }
         let user = users[0];
 
-        // Step 2: If user has an AccessGroupFilter, nullify it first (separate Set call)
-        if (user.accessGroupFilter?.id) {
-            user.accessGroupFilter = null;
-            await apiCall(api, "Set", { typeName: "User", entity: user });
+        // Step 2: If user has an AccessGroupFilter, widen it to root so all groups are visible
+        const existingFilterId = user.accessGroupFilter?.id;
+        if (existingFilterId) {
+            const gfResults = await apiCall(api, "Get", {
+                typeName: "GroupFilter",
+                search: { id: existingFilterId },
+            });
+            if (gfResults.length > 0) {
+                const gf = gfResults[0];
+                // Set filter to root company group — makes ALL groups visible
+                gf.groupFilterCondition = { groupId: "GroupCompanyId" };
+                await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
+            }
 
-            // Re-fetch after removing filter
+            // Re-fetch user after widening filter
             users = await apiCall(api, "Get", {
                 typeName: "User",
                 search: { name: userEntity.name },
@@ -555,13 +564,25 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
             user = users[0];
         }
 
-        // Step 3: Now set companyGroups (no filter blocking)
+        // Step 3: Set companyGroups (filter now allows everything)
         user.companyGroups = newGroups;
         if (user.isDriver) {
             user.driverGroups = newGroups;
         }
-
         await apiCall(api, "Set", { typeName: "User", entity: user });
+
+        // Step 4: Tighten the filter back to match the new companyGroups
+        if (existingFilterId) {
+            const gfResults = await apiCall(api, "Get", {
+                typeName: "GroupFilter",
+                search: { id: existingFilterId },
+            });
+            if (gfResults.length > 0) {
+                const gf = gfResults[0];
+                gf.groupFilterCondition = buildGroupFilterCondition(newGroups);
+                await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
+            }
+        }
     }
 
     // ── Update Groups Handler ──
