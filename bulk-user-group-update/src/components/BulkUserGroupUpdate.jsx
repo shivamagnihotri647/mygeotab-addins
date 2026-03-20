@@ -27,6 +27,37 @@ const apiMultiCall = (api, calls) =>
         api.multiCall(calls, resolve, reject);
     });
 
+/** Direct API call bypassing the SDK (preserves all entity properties like nullifyAccessGroupFilter) */
+const directApiCall = (api, method, params) =>
+    new Promise((resolve, reject) => {
+        api.getSession((session) => {
+            const server = session.server || "my.geotab.com";
+            const url = `https://${server}/apiv1`;
+            const payload = JSON.stringify({
+                method,
+                params: {
+                    credentials: {
+                        database: session.database,
+                        sessionId: session.sessionId,
+                        userName: session.userName,
+                    },
+                    ...params,
+                },
+            });
+            fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: payload,
+            })
+                .then((r) => r.json())
+                .then((data) => {
+                    if (data.error) reject(data.error.message || JSON.stringify(data.error));
+                    else resolve(data.result);
+                })
+                .catch(reject);
+        });
+    });
+
 const timestamp = () => new Date().toLocaleTimeString();
 
 // ══════════════════════════════════════════════════════════════
@@ -555,12 +586,9 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
         }
 
         // Sanitize entity to avoid GenericException on auto-created users
-        // Phone number must be a string (not null)
         if (!user.phoneNumber && user.phoneNumber !== "") user.phoneNumber = "";
         if (!user.phoneNumberExtension && user.phoneNumberExtension !== "") user.phoneNumberExtension = "";
-        // Strip read-only properties returned by Get but rejected by Set
         delete user.isAutoAdded;
-        // Clean up group objects (strip name, keep only id)
         if (user.securityGroups) {
             user.securityGroups = user.securityGroups.map(g => ({ id: g.id }));
         }
@@ -568,7 +596,8 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
             user.issuerCertificate = { id: user.issuerCertificate.id };
         }
 
-        await apiCall(api, "Set", { typeName: "User", entity: user });
+        // Use direct API call to bypass SDK (SDK strips nullifyAccessGroupFilter)
+        await directApiCall(api, "Set", { typeName: "User", entity: user });
     }
 
     // ── Update Groups Handler ──
