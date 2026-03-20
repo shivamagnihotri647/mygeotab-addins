@@ -533,34 +533,29 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
     // ── Update a single user's groups ──
     async function updateSingleUser(api, userEntity, newGroups, addLog) {
         // Step 1: Re-fetch user fresh
-        const freshUsers = await apiCall(api, "Get", {
+        let users = await apiCall(api, "Get", {
             typeName: "User",
             search: { name: userEntity.name },
         });
-        if (!freshUsers || freshUsers.length === 0) {
+        if (!users || users.length === 0) {
             throw new Error("User not found: " + userEntity.name);
         }
-        const user = freshUsers[0];
+        let user = users[0];
 
-        // Step 2: Remove AccessGroupFilter if present (unblocks companyGroups change)
-        const existingFilterId = user.accessGroupFilter?.id;
-        if (existingFilterId) {
-            await apiCall(api, "Remove", {
-                typeName: "GroupFilter",
-                entity: { id: existingFilterId },
-            });
+        // Step 2: If user has an AccessGroupFilter, nullify it first (separate Set call)
+        if (user.accessGroupFilter?.id) {
+            user.accessGroupFilter = null;
+            await apiCall(api, "Set", { typeName: "User", entity: user });
 
-            // Re-fetch user after filter removal
-            const refreshed = await apiCall(api, "Get", {
+            // Re-fetch after removing filter
+            users = await apiCall(api, "Get", {
                 typeName: "User",
                 search: { name: userEntity.name },
             });
-            if (refreshed.length > 0) {
-                Object.assign(user, refreshed[0]);
-            }
+            user = users[0];
         }
 
-        // Step 3: Set companyGroups (no filter blocking now)
+        // Step 3: Now set companyGroups (no filter blocking)
         user.companyGroups = newGroups;
         if (user.isDriver) {
             user.driverGroups = newGroups;
