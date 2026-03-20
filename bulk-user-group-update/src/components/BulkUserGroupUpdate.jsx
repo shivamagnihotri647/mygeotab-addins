@@ -532,7 +532,7 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
 
     // ── Update a single user's groups (handles AccessGroupFilter properly) ──
     async function updateSingleUser(api, userEntity, newGroups, addLog) {
-        // Re-fetch user to get fresh entity (avoids stale entity / version conflicts)
+        // Step 1: Re-fetch user fresh
         const freshUsers = await apiCall(api, "Get", {
             typeName: "User",
             search: { name: userEntity.name },
@@ -542,40 +542,38 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
         }
         const user = freshUsers[0];
 
-        // Step 1: Update companyGroups (and driverGroups if driver)
-        user.companyGroups = newGroups;
-        if (user.isDriver) {
-            user.driverGroups = newGroups;
-        }
-
-        try {
-            await apiCall(api, "Set", { typeName: "User", entity: user });
-        } catch (userErr) {
-            // If full entity Set fails, try minimal entity with just id + companyGroups
-            addLog(`Set:User full entity failed for ${user.name}, trying minimal entity...`, "warn");
-            const minimal = { id: user.id, companyGroups: newGroups };
-            if (user.isDriver) minimal.driverGroups = newGroups;
-            await apiCall(api, "Set", { typeName: "User", entity: minimal });
-        }
-
-        // Step 2: Update GroupFilter to match new companyGroups
+        // Step 2: Update GroupFilter FIRST so new groups become visible
         const existingFilterId = user.accessGroupFilter?.id;
         if (existingFilterId) {
-            try {
-                const gfResults = await apiCall(api, "Get", {
-                    typeName: "GroupFilter",
-                    search: { id: existingFilterId },
-                });
+            const gfResults = await apiCall(api, "Get", {
+                typeName: "GroupFilter",
+                search: { id: existingFilterId },
+            });
 
-                if (gfResults.length > 0) {
-                    const gf = gfResults[0];
-                    gf.groupFilterCondition = buildGroupFilterCondition(newGroups);
-                    await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
-                }
-            } catch (gfErr) {
-                addLog(`Warning: Set:GroupFilter failed for ${user.name} -- ${String(gfErr).substring(0, 80)}`, "warn");
+            if (gfResults.length > 0) {
+                const gf = gfResults[0];
+                gf.groupFilterCondition = buildGroupFilterCondition(newGroups);
+                await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
             }
         }
+
+        // Step 3: Re-fetch user AGAIN after GroupFilter change (entity is now stale)
+        const refreshedUsers = await apiCall(api, "Get", {
+            typeName: "User",
+            search: { name: userEntity.name },
+        });
+        if (!refreshedUsers || refreshedUsers.length === 0) {
+            throw new Error("User not found on second re-fetch: " + userEntity.name);
+        }
+        const updatedUser = refreshedUsers[0];
+
+        // Step 4: Now set companyGroups (filter already allows these groups)
+        updatedUser.companyGroups = newGroups;
+        if (updatedUser.isDriver) {
+            updatedUser.driverGroups = newGroups;
+        }
+
+        await apiCall(api, "Set", { typeName: "User", entity: updatedUser });
     }
 
     // ── Update Groups Handler ──
