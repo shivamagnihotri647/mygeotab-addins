@@ -531,7 +531,7 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
     }
 
     // ── Update a single user's groups (handles AccessGroupFilter properly) ──
-    async function updateSingleUser(api, userEntity, newGroups) {
+    async function updateSingleUser(api, userEntity, newGroups, addLog) {
         // Re-fetch user to get fresh entity (avoids stale entity / version conflicts)
         const freshUsers = await apiCall(api, "Get", {
             typeName: "User",
@@ -542,28 +542,40 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
         }
         const user = freshUsers[0];
 
-        // Update GroupFilter FIRST so the new groups are visible before companyGroups change
-        const existingFilterId = user.accessGroupFilter?.id;
-        if (existingFilterId) {
-            const gfResults = await apiCall(api, "Get", {
-                typeName: "GroupFilter",
-                search: { id: existingFilterId },
-            });
-
-            if (gfResults.length > 0) {
-                const gf = gfResults[0];
-                gf.groupFilterCondition = buildGroupFilterCondition(newGroups);
-                await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
-            }
-        }
-
-        // Now update companyGroups (and driverGroups if driver)
+        // Step 1: Update companyGroups (and driverGroups if driver)
         user.companyGroups = newGroups;
         if (user.isDriver) {
             user.driverGroups = newGroups;
         }
 
-        await apiCall(api, "Set", { typeName: "User", entity: user });
+        try {
+            await apiCall(api, "Set", { typeName: "User", entity: user });
+        } catch (userErr) {
+            // If full entity Set fails, try minimal entity with just id + companyGroups
+            addLog(`Set:User full entity failed for ${user.name}, trying minimal entity...`, "warn");
+            const minimal = { id: user.id, companyGroups: newGroups };
+            if (user.isDriver) minimal.driverGroups = newGroups;
+            await apiCall(api, "Set", { typeName: "User", entity: minimal });
+        }
+
+        // Step 2: Update GroupFilter to match new companyGroups
+        const existingFilterId = user.accessGroupFilter?.id;
+        if (existingFilterId) {
+            try {
+                const gfResults = await apiCall(api, "Get", {
+                    typeName: "GroupFilter",
+                    search: { id: existingFilterId },
+                });
+
+                if (gfResults.length > 0) {
+                    const gf = gfResults[0];
+                    gf.groupFilterCondition = buildGroupFilterCondition(newGroups);
+                    await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
+                }
+            } catch (gfErr) {
+                addLog(`Warning: Set:GroupFilter failed for ${user.name} -- ${String(gfErr).substring(0, 80)}`, "warn");
+            }
+        }
     }
 
     // ── Update Groups Handler ──
@@ -619,7 +631,7 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
             }
 
             try {
-                await updateSingleUser(geotabApi, row._userEntity, newGroups);
+                await updateSingleUser(geotabApi, row._userEntity, newGroups, addLog);
                 setRows((prev) => {
                     const u = [...prev];
                     u[i] = { ...u[i], status: "success", error: "" };
