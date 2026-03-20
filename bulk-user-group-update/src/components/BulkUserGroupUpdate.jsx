@@ -532,17 +532,19 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
 
     // ── Update a single user's groups (handles AccessGroupFilter properly) ──
     async function updateSingleUser(api, userEntity, newGroups) {
-        const user = { ...userEntity };
-        user.companyGroups = newGroups;
-
-        if (user.isDriver) {
-            user.driverGroups = newGroups;
+        // Re-fetch user to get fresh entity (avoids stale entity / version conflicts)
+        const freshUsers = await apiCall(api, "Get", {
+            typeName: "User",
+            search: { name: userEntity.name },
+        });
+        if (!freshUsers || freshUsers.length === 0) {
+            throw new Error("User not found on re-fetch: " + userEntity.name);
         }
+        const user = freshUsers[0];
 
+        // Update GroupFilter FIRST so the new groups are visible before companyGroups change
         const existingFilterId = user.accessGroupFilter?.id;
-
         if (existingFilterId) {
-            // User has an existing GroupFilter entity — update it directly via Set:GroupFilter
             const gfResults = await apiCall(api, "Get", {
                 typeName: "GroupFilter",
                 search: { id: existingFilterId },
@@ -553,6 +555,12 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
                 gf.groupFilterCondition = buildGroupFilterCondition(newGroups);
                 await apiCall(api, "Set", { typeName: "GroupFilter", entity: gf });
             }
+        }
+
+        // Now update companyGroups (and driverGroups if driver)
+        user.companyGroups = newGroups;
+        if (user.isDriver) {
+            user.driverGroups = newGroups;
         }
 
         await apiCall(api, "Set", { typeName: "User", entity: user });
