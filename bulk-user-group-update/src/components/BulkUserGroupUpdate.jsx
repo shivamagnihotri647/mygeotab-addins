@@ -105,19 +105,21 @@ function downloadCsv(content, filename) {
  * Tries name lookup in groupCache first, falls back to raw ID.
  */
 function resolveGroups(value, groupCache) {
-    if (!value) return null;
+    if (!value) return { groups: null, unresolved: [] };
     const parts = value.split("|").map((s) => s.trim()).filter(Boolean);
-    if (parts.length === 0) return null;
+    if (parts.length === 0) return { groups: null, unresolved: [] };
 
-    const result = [];
+    const resolved = [];
+    const unresolved = [];
     for (const part of parts) {
-        if (groupCache && groupCache[part]) {
-            result.push({ id: groupCache[part].id });
+        const match = groupCache && (groupCache[part] || groupCache[part.toLowerCase()]);
+        if (match) {
+            resolved.push({ id: match.id });
         } else {
-            result.push({ id: part });
+            unresolved.push(part);
         }
     }
-    return result.length > 0 ? result : null;
+    return { groups: resolved.length > 0 ? resolved : null, unresolved };
 }
 
 /** Format groups array as pipe-separated display names */
@@ -266,7 +268,7 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
 
         async function fetchData() {
             try {
-                const groups = await apiCall(geotabApi, "Get", { typeName: "Group" });
+                const groups = await apiCall(geotabApi, "Get", { typeName: "Group", resultsLimit: 100000 });
                 if (cancelled) return;
 
                 const cache = {};
@@ -274,6 +276,10 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
                 for (const g of groups) {
                     const name = g.name || g.id;
                     cache[name] = g;
+                    const lower = name.toLowerCase();
+                    if (lower !== name && !cache[lower]) {
+                        cache[lower] = g;
+                    }
                     idMap[g.id] = name;
                 }
                 setGroupCache(cache);
@@ -432,6 +438,19 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
                 }
             }
 
+            // Validate group names in CSV against loaded cache
+            let usersWithBadGroups = 0;
+            const allUnresolved = new Set();
+            for (const row of updated) {
+                if (row.status === "ready") {
+                    const { unresolved } = resolveGroups(row.groupName, groupCache);
+                    if (unresolved.length > 0) {
+                        usersWithBadGroups++;
+                        unresolved.forEach((g) => allUnresolved.add(g));
+                    }
+                }
+            }
+
             setRows(updated);
 
             const found = updated.filter((r) => r.status === "ready").length;
@@ -442,6 +461,18 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
             if (notFound > 0) msg += `, ${notFound} not found`;
             if (failed > 0) msg += `, ${failed} errors`;
             addLog(msg, notFound > 0 || failed > 0 ? "warn" : "success");
+
+            if (usersWithBadGroups > 0) {
+                const samples = [...allUnresolved].slice(0, 5).join(", ");
+                addLog(
+                    `WARNING: ${usersWithBadGroups} user(s) reference ${allUnresolved.size} group name(s) not found in database. Samples: ${samples}${allUnresolved.size > 5 ? " ..." : ""}`,
+                    "error"
+                );
+                addLog(
+                    `Total groups loaded: ${Object.keys(groupCache).length}. If groups are missing, the logged-in user may not have visibility to them.`,
+                    "warn"
+                );
+            }
 
             setLookingUp(false);
         },
@@ -559,17 +590,24 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
             if (row.status !== "ready" && row.status !== "updating") continue;
             if (!row._userEntity) continue;
 
-            const newGroups = resolveGroups(row.groupName, groupCache);
+            const { groups: newGroups, unresolved } = resolveGroups(row.groupName, groupCache);
             if (!newGroups) {
+                const errMsg = unresolved.length > 0
+                    ? `Groups not found in database: ${unresolved.slice(0, 5).join(", ")}${unresolved.length > 5 ? ` (+${unresolved.length - 5} more)` : ""}`
+                    : "Could not resolve group name(s)";
                 setRows((prev) => {
                     const u = [...prev];
-                    u[i] = { ...u[i], status: "failed", error: "Could not resolve group name(s)" };
+                    u[i] = { ...u[i], status: "failed", error: errMsg };
                     return u;
                 });
                 failCount++;
                 processed++;
                 setProgress(processed);
+                addLog(`Failed: ${row.username} -- ${errMsg}`, "error");
                 continue;
+            }
+            if (unresolved.length > 0) {
+                addLog(`Warning: ${row.username} -- ${unresolved.length} group(s) not found, using ${newGroups.length} resolved groups`, "warn");
             }
 
             try {
