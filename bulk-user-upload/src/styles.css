@@ -151,6 +151,15 @@
     background: #f5f5f5;
 }
 
+.buu-btn-template--excel {
+    background: #217346;
+    border-color: #1a5c38;
+}
+
+.buu-btn-template--excel:hover {
+    background: #1a5c38;
+}
+
 /* ── Upload Area ── */
 .buu-upload-area {
     border: 2px dashed #ccc;
@@ -549,6 +558,16 @@ code {
 
 .buu-btn-secondary:hover:not(:disabled) {
     background-color: #1565c0 !important;
+}
+
+.buu-btn-excel {
+    background-color: #217346 !important;
+    border-color: #1a5c38 !important;
+    color: #fff !important;
+}
+
+.buu-btn-excel:hover:not(:disabled) {
+    background-color: #1a5c38 !important;
 }
 
 /* ── Progress Bar ── */

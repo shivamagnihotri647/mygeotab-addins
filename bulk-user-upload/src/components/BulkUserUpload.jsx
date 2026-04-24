@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
+import * as XLSX from "xlsx";
 
 // ── Constants ──
 // Add:User rate limit is 250 calls/min (~4/sec).
@@ -272,6 +273,21 @@ function generateCsvTemplate(selectedFields) {
 /** Trigger browser download of text as CSV */
 function downloadCsv(content, filename) {
     const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+/** Trigger browser download of an Excel workbook */
+function downloadXlsx(worksheetData, filename, sheetName = "Sheet1") {
+    const ws = XLSX.utils.aoa_to_sheet(worksheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    const wbOut = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([wbOut], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -648,7 +664,7 @@ function StatusBadge({ status }) {
     return <span className={`buu-badge buu-badge--${status}`}>{status}</span>;
 }
 
-function TemplateBuilder({ selectedFields, onToggleField, onSelectAll, onClearAll, onDownload }) {
+function TemplateBuilder({ selectedFields, onToggleField, onSelectAll, onClearAll, onDownload, onDownloadExcel }) {
     return (
         <div className="buu-template-builder">
             <h3 className="buu-section-title">Template Builder</h3>
@@ -686,7 +702,10 @@ function TemplateBuilder({ selectedFields, onToggleField, onSelectAll, onClearAl
 
             <div className="buu-template-actions">
                 <button className="buu-btn-template" onClick={onDownload}>
-                    Download Template
+                    Download CSV
+                </button>
+                <button className="buu-btn-template buu-btn-template--excel" onClick={onDownloadExcel}>
+                    Download Excel
                 </button>
                 <button
                     className="buu-btn-template buu-btn-template--outline"
@@ -1053,6 +1072,15 @@ export default function BulkUserUpload({ geotabApi }) {
         );
     }, [selectedFields, addLog]);
 
+    const handleDownloadTemplateExcel = useCallback(() => {
+        const columns = [...MANDATORY_FIELDS, ...selectedFields];
+        downloadXlsx([columns], "user_upload_template.xlsx", "Template");
+        addLog(
+            `Excel template downloaded with ${columns.length} columns: ${columns.join(", ")}`,
+            "info"
+        );
+    }, [selectedFields, addLog]);
+
     // ── CSV Upload Handlers ──
     const processFile = useCallback(
         (file) => {
@@ -1220,6 +1248,19 @@ export default function BulkUserUpload({ geotabApi }) {
         addLog("Results CSV downloaded", "info");
     }, [users, csvHeaders, addLog]);
 
+    const handleDownloadResultsExcel = useCallback(() => {
+        const allCols = [...csvHeaders, "status", "error"];
+        const dataRows = users.map((user) =>
+            allCols.map((col) => {
+                if (col === "status") return user._status || "";
+                if (col === "error") return user._error || "";
+                return user[col] || "";
+            })
+        );
+        downloadXlsx([allCols, ...dataRows], "user_upload_results.xlsx", "Results");
+        addLog("Results Excel downloaded", "info");
+    }, [users, csvHeaders, addLog]);
+
     // ── Render ──
     const progressPct = progressTotal > 0 ? Math.round((progress / progressTotal) * 100) : 0;
 
@@ -1243,6 +1284,7 @@ export default function BulkUserUpload({ geotabApi }) {
                         onSelectAll={handleSelectAll}
                         onClearAll={handleClearAll}
                         onDownload={handleDownloadTemplate}
+                        onDownloadExcel={handleDownloadTemplateExcel}
                     />
 
                     {/* Field Reference */}
@@ -1322,12 +1364,20 @@ export default function BulkUserUpload({ geotabApi }) {
                             {processing ? "Uploading..." : "Upload Users"}
                         </button>
                         {completed && (
-                            <button
-                                className="buu-btn-full buu-btn-secondary"
-                                onClick={handleDownloadResults}
-                            >
-                                Download Results
-                            </button>
+                            <>
+                                <button
+                                    className="buu-btn-full buu-btn-secondary"
+                                    onClick={handleDownloadResults}
+                                >
+                                    Results CSV
+                                </button>
+                                <button
+                                    className="buu-btn-full buu-btn-excel"
+                                    onClick={handleDownloadResultsExcel}
+                                >
+                                    Results Excel
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>
