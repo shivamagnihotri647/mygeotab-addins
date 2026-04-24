@@ -132,7 +132,61 @@ const DEFAULT_CONFIG = {
     securityGroups: "GroupDriveUserSecurityId",
     changePassword: false,
     delayVerificationEmail: false,
+    featurePreview: "Disabled",
+    isYardMoveEnabled: false,
+    isPersonalConveyanceEnabled: false,
 };
+
+// ── Field Reference Metadata ──
+const FIELD_REFERENCE = [
+    // Mandatory fields
+    { field: "name", label: "Username", mandatory: true, type: "text", format: "email or unique string", default: "(required)", description: "Unique login username (usually email)" },
+    { field: "firstName", label: "First Name", mandatory: true, type: "text", format: "text", default: "(required)", description: "User's first name" },
+    { field: "lastName", label: "Last Name", mandatory: true, type: "text", format: "text", default: "(required)", description: "User's last name" },
+    { field: "password", label: "Password", mandatory: true, type: "text", format: "8+ chars, mixed case/digits/symbols", default: "auto-generated", description: "Account password; auto-generated if empty and changePassword is on" },
+    { field: "companyGroups", label: "Company Groups", mandatory: true, type: "group", format: "pipe-separated names or IDs", default: "GroupCompanyId", description: "Organization groups the user belongs to" },
+    { field: "securityGroups", label: "Security Groups", mandatory: true, type: "group", format: "pipe-separated IDs", default: "GroupDriveUserSecurityId", description: "Security clearance groups (e.g. GroupDriveUserSecurityId)" },
+    { field: "featurePreview", label: "Feature Preview", mandatory: true, type: "select", format: "Disabled | Enabled", default: "Disabled", description: "Whether the user sees preview/beta features" },
+    { field: "isYardMoveEnabled", label: "Yard Move Enabled", mandatory: true, type: "boolean", format: "true/false", default: "false", description: "Allow driver to log yard move duty status" },
+    { field: "isPersonalConveyanceEnabled", label: "Personal Conveyance", mandatory: true, type: "boolean", format: "true/false", default: "false", description: "Allow driver to log personal conveyance duty status" },
+    { field: "timeZoneId", label: "Time Zone", mandatory: true, type: "select", format: "IANA tz (e.g. America/Chicago)", default: "America/Chicago", description: "User's time zone for reports and display" },
+    { field: "fuelEconomyUnit", label: "Fuel Economy Unit", mandatory: true, type: "select", format: "MPGUS | MPGImperial | LitersPer100Km | KmPerLiter", default: "MPGUS", description: "Unit system for fuel economy values" },
+    { field: "isMetric", label: "Use Metric", mandatory: true, type: "boolean", format: "true/false", default: "false", description: "Display distances/speeds in metric units" },
+    // Identity & Personal
+    { field: "employeeNo", label: "Employee No", mandatory: false, type: "text", format: "text", default: "(none)", description: "Employee number for payroll/HR integration" },
+    { field: "comment", label: "Comment", mandatory: false, type: "text", format: "text", default: "(none)", description: "Free-text note about the user" },
+    { field: "designation", label: "Designation", mandatory: false, type: "text", format: "text", default: "(none)", description: "Job title or designation" },
+    { field: "phoneNumber", label: "Phone Number", mandatory: false, type: "text", format: "digits", default: "(none)", description: "User's phone number" },
+    { field: "phoneNumberExtension", label: "Phone Extension", mandatory: false, type: "text", format: "digits", default: "(none)", description: "Phone number extension" },
+    { field: "companyName", label: "Company Name", mandatory: false, type: "text", format: "text", default: "(none)", description: "Company or organization name" },
+    { field: "companyAddress", label: "Company Address", mandatory: false, type: "text", format: "text", default: "(none)", description: "Company street address" },
+    { field: "countryCode", label: "Country Code", mandatory: false, type: "text", format: "ISO 3166-1 (e.g. US, CA)", default: "(none)", description: "Two-letter country code" },
+    // Driver / HOS
+    { field: "isDriver", label: "Is Driver", mandatory: false, type: "boolean", format: "true/false", default: "true", description: "Whether the user is a driver (auto-set if NFC/license present)" },
+    { field: "hosRuleSet", label: "HOS Rule Set", mandatory: false, type: "text", format: "HOS ruleset ID string", default: "(none)", description: "Hours of Service ruleset ID (added as UserHosRuleSet after creation)" },
+    { field: "nfcKey", label: "NFC Key", mandatory: false, type: "text", format: "NFC serial number", default: "(none)", description: "NFC driver key serial number" },
+    { field: "customNfcKey", label: "Custom NFC Key", mandatory: false, type: "text", format: "numeric (< 72057594037927940)", default: "(none)", description: "Custom NFC driver key number" },
+    { field: "licenseNumber", label: "License Number", mandatory: false, type: "text", format: "text", default: "(none)", description: "Driver's license number" },
+    { field: "licenseProvince", label: "License Province", mandatory: false, type: "text", format: "state/province code", default: "(none)", description: "Province or state that issued the license" },
+    { field: "authorityName", label: "Authority Name", mandatory: false, type: "text", format: "text", default: "(none)", description: "Carrier authority name (FMCSA)" },
+    { field: "authorityAddress", label: "Authority Address", mandatory: false, type: "text", format: "text", default: "(none)", description: "Carrier authority address" },
+    { field: "carrierNumber", label: "Carrier Number", mandatory: false, type: "text", format: "text", default: "(none)", description: "DOT or carrier number" },
+    { field: "isAdverseDrivingEnabled", label: "Adverse Driving", mandatory: false, type: "boolean", format: "true/false", default: "(none)", description: "Enable adverse driving conditions exception" },
+    { field: "isExemptHOSEnabled", label: "Exempt HOS", mandatory: false, type: "boolean", format: "true/false", default: "(none)", description: "Enable short-haul HOS exemption" },
+    { field: "maxPCDistancePerDay", label: "Max PC Distance/Day", mandatory: false, type: "number", format: "numeric (meters)", default: "(none)", description: "Maximum personal conveyance distance per day in meters" },
+    // Groups
+    { field: "reportGroups", label: "Report Groups", mandatory: false, type: "group", format: "pipe-separated names or IDs", default: "(none)", description: "Groups used for report scoping" },
+    { field: "privateUserGroups", label: "Private User Groups", mandatory: false, type: "group", format: "pipe-separated names or IDs", default: "(none)", description: "Groups for private user data access" },
+    // Account
+    { field: "userAuthenticationType", label: "Auth Type", mandatory: false, type: "text", format: "BasicAuthentication | MyAdmin | SAML", default: "BasicAuthentication", description: "Authentication method for the user" },
+    { field: "changePassword", label: "Change Password", mandatory: false, type: "boolean", format: "true/false", default: "false", description: "Force user to change password on next login" },
+    { field: "sendWelcomeEmail", label: "Send Welcome Email", mandatory: false, type: "boolean", format: "true/false", default: "(none)", description: "Send a welcome/verification email on creation" },
+    { field: "activeFrom", label: "Active From", mandatory: false, type: "text", format: "ISO 8601 datetime", default: "now", description: "Date/time when the user account becomes active" },
+    { field: "activeTo", label: "Active To", mandatory: false, type: "text", format: "ISO 8601 datetime", default: "2050-01-01", description: "Date/time when the user account expires" },
+    { field: "isEmailReportEnabled", label: "Email Reports", mandatory: false, type: "boolean", format: "true/false", default: "(none)", description: "Enable scheduled email reports" },
+    { field: "isNewsEnabled", label: "News Enabled", mandatory: false, type: "boolean", format: "true/false", default: "(none)", description: "Show Geotab news feed to the user" },
+    { field: "isLabsEnabled", label: "Labs Enabled", mandatory: false, type: "boolean", format: "true/false", default: "(none)", description: "Enable access to Geotab Labs features" },
+];
 
 // ══════════════════════════════════════════════════════════════
 // API Helpers
@@ -384,6 +438,11 @@ function buildUserEntity(row, csvHeaders, defaults, groupCache) {
     if (defaults.delayVerificationEmail) {
         entity.sendWelcomeEmail = false;
     }
+
+    // Feature preview & HOS convenience defaults
+    if (defaults.featurePreview !== undefined) entity.featurePreview = defaults.featurePreview;
+    if (defaults.isYardMoveEnabled !== undefined) entity.isYardMoveEnabled = defaults.isYardMoveEnabled;
+    if (defaults.isPersonalConveyanceEnabled !== undefined) entity.isPersonalConveyanceEnabled = defaults.isPersonalConveyanceEnabled;
 
     // Default groups — resolve names via cache
     if (defaults.companyGroups) {
@@ -727,6 +786,17 @@ function DefaultsPanel({ defaults, onChange, timeZones }) {
                                 placeholder="(empty = auto-generated if changePassword on)"
                             />
                         </div>
+                        <div className="buu-input-group">
+                            <label className="buu-input-label">featurePreview</label>
+                            <select
+                                className="buu-select"
+                                value={defaults.featurePreview}
+                                onChange={(e) => onChange("featurePreview", e.target.value)}
+                            >
+                                <option value="Disabled">Disabled</option>
+                                <option value="Enabled">Enabled</option>
+                            </select>
+                        </div>
                     </div>
                     <div className="buu-checkbox-grid">
                         <div className="buu-checkbox-row">
@@ -765,7 +835,68 @@ function DefaultsPanel({ defaults, onChange, timeZones }) {
                             />
                             <label htmlFor="def-delayEmail">Delay verification email</label>
                         </div>
+                        <div className="buu-checkbox-row">
+                            <input
+                                type="checkbox"
+                                id="def-isYardMoveEnabled"
+                                checked={defaults.isYardMoveEnabled}
+                                onChange={(e) => onChange("isYardMoveEnabled", e.target.checked)}
+                            />
+                            <label htmlFor="def-isYardMoveEnabled">isYardMoveEnabled</label>
+                        </div>
+                        <div className="buu-checkbox-row">
+                            <input
+                                type="checkbox"
+                                id="def-isPersonalConveyanceEnabled"
+                                checked={defaults.isPersonalConveyanceEnabled}
+                                onChange={(e) => onChange("isPersonalConveyanceEnabled", e.target.checked)}
+                            />
+                            <label htmlFor="def-isPersonalConveyanceEnabled">isPersonalConveyanceEnabled</label>
+                        </div>
                     </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function FieldReference() {
+    const [open, setOpen] = useState(false);
+
+    return (
+        <div className="buu-ref-panel">
+            <button className="buu-ref-toggle" onClick={() => setOpen(!open)}>
+                <span>Field Reference Guide</span>
+                <span className={`buu-defaults-arrow ${open ? "buu-defaults-arrow--open" : ""}`}>
+                    ▼
+                </span>
+            </button>
+            {open && (
+                <div className="buu-ref-body">
+                    <table className="buu-ref-table">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>Mandatory</th>
+                                <th>Type</th>
+                                <th>Format</th>
+                                <th>Default</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {FIELD_REFERENCE.map((f) => (
+                                <tr key={f.field} className={f.mandatory ? "buu-ref-mandatory" : ""}>
+                                    <td><code>{f.field}</code></td>
+                                    <td>{f.mandatory ? <span className="buu-tag buu-tag--mandatory">Yes</span> : "No"}</td>
+                                    <td>{f.type}</td>
+                                    <td>{f.format}</td>
+                                    <td><code>{f.default}</code></td>
+                                    <td>{f.description}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             )}
         </div>
@@ -1113,6 +1244,9 @@ export default function BulkUserUpload({ geotabApi }) {
                         onClearAll={handleClearAll}
                         onDownload={handleDownloadTemplate}
                     />
+
+                    {/* Field Reference */}
+                    <FieldReference />
 
                     {/* CSV Upload */}
                     <div className="buu-form-group">
