@@ -475,3 +475,171 @@ code {
     border-radius: 3px;
     font-size: 12px;
 }
+
+/* ═══ Mode Tabs ═══ */
+.bugu-mode-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 16px;
+}
+
+.bugu-mode-tab {
+    padding: 10px 20px;
+    border: 1px solid #e0e0e0;
+    background: #f5f5f5;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    font-family: inherit;
+    color: #666;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.bugu-mode-tab:first-child {
+    border-radius: 6px 0 0 6px;
+}
+
+.bugu-mode-tab:last-child {
+    border-radius: 0 6px 6px 0;
+}
+
+.bugu-mode-tab--active {
+    background: #fff;
+    border-bottom-color: #fff;
+    color: #1976d2;
+}
+
+.bugu-mode-tab:hover:not(:disabled):not(.bugu-mode-tab--active) {
+    background: #eee;
+}
+
+.bugu-mode-tab:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ═══ Group Type Radio ═══ */
+.bugu-radio-group {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 4px;
+}
+
+.bugu-radio-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #394049;
+}
+
+.bugu-radio-item input[type="radio"] {
+    margin: 0;
+}
+
+/* ═══ Group Selector ═══ */
+.bugu-group-select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    color: #394049;
+    background: #fff;
+}
+
+.bugu-group-select:focus {
+    outline: none;
+    border-color: #1976d2;
+    box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+
+.bugu-group-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ═══ User Checklist ═══ */
+.bugu-user-list {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.bugu-user-row {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #f0f0f0;
+    gap: 12px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.bugu-user-row:last-child {
+    border-bottom: none;
+}
+
+.bugu-user-row:hover {
+    background: #f8f9fa;
+}
+
+.bugu-user-row--header {
+    background: #f5f5f5;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    cursor: default;
+}
+
+.bugu-user-row--header:hover {
+    background: #f5f5f5;
+}
+
+.bugu-user-row input[type="checkbox"] {
+    flex-shrink: 0;
+    margin: 0;
+}
+
+.bugu-user-col-name {
+    flex: 0 0 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bugu-user-col-fullname {
+    flex: 0 0 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bugu-user-col-groups {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #666;
+}
+
+.bugu-select-count {
+    font-size: 13px;
+    color: #666;
+    margin: 8px 0;
+}
+
+/* ═══ Danger Button Variant ═══ */
+.bugu-btn-danger {
+    background-color: #d32f2f !important;
+    border-color: #b71c1c !important;
+}
+
+.bugu-btn-danger:hover:not(:disabled) {
+    background-color: #b71c1c !important;
+}

@@ -260,9 +260,13 @@ function PreviewTable({ rows }) {
 // ══════════════════════════════════════════════════════════════
 
 export default function BulkUserGroupUpdate({ geotabApi }) {
+    // Mode toggle: "csv" or "remove"
+    const [mode, setMode] = useState("csv");
+
     // API data caches
     const [groupCache, setGroupCache] = useState(null);
     const [groupIdToName, setGroupIdToName] = useState({});
+    const [allGroups, setAllGroups] = useState([]);
     const [apiDataLoaded, setApiDataLoaded] = useState(false);
 
     // CSV / file state
@@ -276,6 +280,15 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
     const [progress, setProgress] = useState(0);
     const [progressTotal, setProgressTotal] = useState(0);
     const [completed, setCompleted] = useState(false);
+
+    // Remove Group mode state
+    const [groupType, setGroupType] = useState("companyGroups");
+    const [selectedGroup, setSelectedGroup] = useState("");
+    const [groupUsers, setGroupUsers] = useState([]);
+    const [selectedUserIds, setSelectedUserIds] = useState(new Set());
+    const [loadingUsers, setLoadingUsers] = useState(false);
+    const [removeCompleted, setRemoveCompleted] = useState(false);
+    const [removeRows, setRemoveRows] = useState([]);
 
     // Log state
     const [logs, setLogs] = useState([]);
@@ -315,6 +328,7 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
                 }
                 setGroupCache(cache);
                 setGroupIdToName(idMap);
+                setAllGroups(groups);
                 setApiDataLoaded(true);
                 addLog(`Loaded ${groups.length} groups from database`, "info");
             } catch (err) {
@@ -600,6 +614,177 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
         await directApiCall(api, "Set", { typeName: "User", entity: user });
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // Remove Group Mode — Functions
+    // ══════════════════════════════════════════════════════════════
+
+    // System group IDs that should not appear in the dropdown
+    const SYSTEM_GROUP_IDS = new Set([
+        "GroupCompanyId",
+        "GroupEverythingSecurityId",
+        "GroupNothingSecurityId",
+        "GroupSupervisorsSecurityId",
+        "GroupUserSecurityId",
+        "GroupViewOnlySecurityId",
+        "GroupDriveUserSecurityId",
+        "GroupPersonalGroup",
+    ]);
+
+    /** Get groups list for dropdown, filtered to non-system groups, sorted alphabetically */
+    const dropdownGroups = React.useMemo(() => {
+        return allGroups
+            .filter((g) => !SYSTEM_GROUP_IDS.has(g.id) && g.name)
+            .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }, [allGroups]);
+
+    /** Load all users who have the selected group in the chosen groupType */
+    const loadUsersWithGroup = useCallback(async () => {
+        if (!geotabApi || !selectedGroup) return;
+
+        setLoadingUsers(true);
+        setGroupUsers([]);
+        setSelectedUserIds(new Set());
+        setRemoveCompleted(false);
+        setRemoveRows([]);
+        addLog(`Loading users with group "${groupIdToName[selectedGroup] || selectedGroup}" in ${groupType}...`, "info");
+
+        try {
+            const users = await apiCall(geotabApi, "Get", {
+                typeName: "User",
+                search: { [groupType]: [{ id: selectedGroup }] },
+            });
+
+            if (users.length === 0) {
+                addLog("No users found with this group assignment", "warn");
+            } else {
+                addLog(`Found ${users.length} user(s) with this group`, "success");
+            }
+
+            setGroupUsers(users);
+        } catch (err) {
+            addLog("Failed to load users: " + parseErrorMessage(err), "error");
+        } finally {
+            setLoadingUsers(false);
+        }
+    }, [geotabApi, selectedGroup, groupType, groupIdToName, addLog]);
+
+    /** Toggle a single user selection */
+    const toggleUserSelection = useCallback((userId) => {
+        setSelectedUserIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(userId)) next.delete(userId);
+            else next.add(userId);
+            return next;
+        });
+    }, []);
+
+    /** Toggle select all */
+    const toggleSelectAll = useCallback(() => {
+        if (selectedUserIds.size === groupUsers.length) {
+            setSelectedUserIds(new Set());
+        } else {
+            setSelectedUserIds(new Set(groupUsers.map((u) => u.id)));
+        }
+    }, [selectedUserIds, groupUsers]);
+
+    /** Remove the selected group from selected users */
+    const handleRemoveGroup = useCallback(async () => {
+        if (!geotabApi || selectedUserIds.size === 0 || !selectedGroup) return;
+
+        const targetUsers = groupUsers.filter((u) => selectedUserIds.has(u.id));
+        const groupName = groupIdToName[selectedGroup] || selectedGroup;
+
+        setProcessing(true);
+        setProgress(0);
+        setProgressTotal(targetUsers.length);
+        setRemoveCompleted(false);
+
+        addLog(`Removing group "${groupName}" from ${targetUsers.length} user(s)...`, "info");
+
+        const results = [];
+        let successCount = 0;
+        let failCount = 0;
+        let processed = 0;
+
+        for (const targetUser of targetUsers) {
+            try {
+                // Re-fetch user fresh
+                const users = await apiCall(geotabApi, "Get", {
+                    typeName: "User",
+                    search: { name: targetUser.name },
+                });
+                if (!users || users.length === 0) throw new Error("User not found");
+                const user = users[0];
+
+                const prevGroups = formatGroups(user[groupType], groupIdToName);
+
+                // Filter out the target group
+                user[groupType] = (user[groupType] || []).filter((g) => g.id !== selectedGroup);
+
+                // If removing from companyGroups and user is a driver, also remove from driverGroups
+                if (groupType === "companyGroups" && user.isDriver) {
+                    user.driverGroups = (user.driverGroups || []).filter((g) => g.id !== selectedGroup);
+                }
+
+                // Ensure companyGroups is not empty (MyGeotab requires at least one)
+                if (groupType === "companyGroups" && user.companyGroups.length === 0) {
+                    throw new Error("Cannot remove last companyGroup — user must have at least one");
+                }
+
+                // Handle accessGroupFilter
+                if (user.accessGroupFilter?.id) {
+                    delete user.accessGroupFilter;
+                    user.nullifyAccessGroupFilter = true;
+                }
+
+                // Sanitize entity
+                if (!user.phoneNumber && user.phoneNumber !== "") user.phoneNumber = "";
+                if (!user.phoneNumberExtension && user.phoneNumberExtension !== "") user.phoneNumberExtension = "";
+                delete user.isAutoAdded;
+                if (user.securityGroups) {
+                    user.securityGroups = user.securityGroups.map((g) => ({ id: g.id }));
+                }
+                if (user.issuerCertificate) {
+                    user.issuerCertificate = { id: user.issuerCertificate.id };
+                }
+
+                await directApiCall(geotabApi, "Set", { typeName: "User", entity: user });
+
+                successCount++;
+                addLog(`Removed "${groupName}" from ${user.name}`, "success");
+                results.push({ username: user.name, groupName, previousGroups: prevGroups, status: "success", error: "" });
+            } catch (err) {
+                const errMsg = parseErrorMessage(err);
+                failCount++;
+                addLog(`Failed: ${targetUser.name} — ${errMsg}`, "error");
+                results.push({ username: targetUser.name, groupName, previousGroups: "", status: "failed", error: errMsg });
+            }
+
+            processed++;
+            setProgress(processed);
+
+            if (processed % BATCH_SIZE === 0 && processed < targetUsers.length) {
+                await batchDelay(BATCH_DELAY_MS);
+            }
+        }
+
+        addLog(
+            `Removal complete: ${successCount} succeeded, ${failCount} failed out of ${processed} total`,
+            failCount > 0 ? "warn" : "success"
+        );
+
+        setRemoveRows(results);
+        setProcessing(false);
+        setRemoveCompleted(true);
+    }, [geotabApi, groupUsers, selectedUserIds, selectedGroup, groupType, groupIdToName, addLog]);
+
+    /** Download remove-mode results CSV */
+    const handleDownloadRemoveResults = useCallback(() => {
+        const csv = generateResultsCsv(removeRows);
+        downloadCsv(csv, "group_removal_results.csv");
+        addLog("Results CSV downloaded", "info");
+    }, [removeRows, addLog]);
+
     // ── Update Groups Handler ──
     const handleUpdate = useCallback(async () => {
         if (!geotabApi || rows.length === 0) return;
@@ -701,9 +886,29 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
     const readyCount = rows.filter((r) => r.status === "ready").length;
     const isDisabled = processing || lookingUp;
 
+    const allUsersSelected = groupUsers.length > 0 && selectedUserIds.size === groupUsers.length;
+
     return (
         <div className="bugu-container">
             <h2>Bulk User Group Update</h2>
+
+            {/* Mode Tabs */}
+            <div className="bugu-mode-tabs">
+                <button
+                    className={`bugu-mode-tab${mode === "csv" ? " bugu-mode-tab--active" : ""}`}
+                    onClick={() => setMode("csv")}
+                    disabled={processing || lookingUp || loadingUsers}
+                >
+                    Update Groups (CSV)
+                </button>
+                <button
+                    className={`bugu-mode-tab${mode === "remove" ? " bugu-mode-tab--active" : ""}`}
+                    onClick={() => setMode("remove")}
+                    disabled={processing || lookingUp || loadingUsers}
+                >
+                    Remove Group
+                </button>
+            </div>
 
             {!apiDataLoaded && (
                 <div className="bugu-banner bugu-banner--info">
@@ -714,6 +919,9 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
             <div className="bugu-layout">
                 {/* ── Left Panel: Controls ── */}
                 <div className="bugu-controls-panel">
+                    {/* ═══ CSV MODE ═══ */}
+                    {mode === "csv" && (
+                        <>
                     {/* CSV Upload */}
                     <div className="bugu-form-group">
                         <label className="bugu-label">Upload CSV</label>
@@ -794,6 +1002,166 @@ export default function BulkUserGroupUpdate({ geotabApi }) {
                             </button>
                         )}
                     </div>
+                        </>
+                    )}
+
+                    {/* ═══ REMOVE GROUP MODE ═══ */}
+                    {mode === "remove" && (
+                        <>
+                            {/* Group Type Selector */}
+                            <div className="bugu-form-group">
+                                <label className="bugu-label">Group Type</label>
+                                <div className="bugu-radio-group">
+                                    <label className="bugu-radio-item">
+                                        <input
+                                            type="radio"
+                                            name="groupType"
+                                            value="companyGroups"
+                                            checked={groupType === "companyGroups"}
+                                            onChange={(e) => setGroupType(e.target.value)}
+                                            disabled={processing || loadingUsers}
+                                        />
+                                        <span>Company Groups</span>
+                                    </label>
+                                    <label className="bugu-radio-item">
+                                        <input
+                                            type="radio"
+                                            name="groupType"
+                                            value="reportGroups"
+                                            checked={groupType === "reportGroups"}
+                                            onChange={(e) => setGroupType(e.target.value)}
+                                            disabled={processing || loadingUsers}
+                                        />
+                                        <span>Report Groups</span>
+                                    </label>
+                                    <label className="bugu-radio-item">
+                                        <input
+                                            type="radio"
+                                            name="groupType"
+                                            value="driverGroups"
+                                            checked={groupType === "driverGroups"}
+                                            onChange={(e) => setGroupType(e.target.value)}
+                                            disabled={processing || loadingUsers}
+                                        />
+                                        <span>Driver Groups</span>
+                                    </label>
+                                </div>
+                                {groupType === "driverGroups" && (
+                                    <p className="bugu-upload-subtext">
+                                        Note: driverGroups only applies to users with isDriver=true
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* Group Selector */}
+                            <div className="bugu-form-group">
+                                <label className="bugu-label">Select Group to Remove</label>
+                                <select
+                                    className="bugu-group-select"
+                                    value={selectedGroup}
+                                    onChange={(e) => setSelectedGroup(e.target.value)}
+                                    disabled={processing || loadingUsers}
+                                >
+                                    <option value="">-- Select a group --</option>
+                                    {dropdownGroups.map((g) => (
+                                        <option key={g.id} value={g.id}>
+                                            {g.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Load Users Button */}
+                            <div className="bugu-form-group">
+                                <button
+                                    className="bugu-btn-full bugu-btn-secondary"
+                                    disabled={!selectedGroup || processing || loadingUsers}
+                                    onClick={loadUsersWithGroup}
+                                >
+                                    {loadingUsers ? "Loading Users..." : "Load Users with This Group"}
+                                </button>
+                            </div>
+
+                            {/* User Checklist */}
+                            {groupUsers.length > 0 && (
+                                <>
+                                    <div className="bugu-select-count">
+                                        {selectedUserIds.size} of {groupUsers.length} users selected
+                                    </div>
+                                    <div className="bugu-user-list">
+                                        <div className="bugu-user-row bugu-user-row--header">
+                                            <input
+                                                type="checkbox"
+                                                checked={allUsersSelected}
+                                                onChange={toggleSelectAll}
+                                                disabled={processing}
+                                            />
+                                            <span className="bugu-user-col-name">Username</span>
+                                            <span className="bugu-user-col-fullname">Name</span>
+                                            <span className="bugu-user-col-groups">Current {groupType}</span>
+                                        </div>
+                                        {groupUsers.map((user) => (
+                                            <div
+                                                key={user.id}
+                                                className="bugu-user-row"
+                                                onClick={() => !processing && toggleUserSelection(user.id)}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedUserIds.has(user.id)}
+                                                    onChange={() => toggleUserSelection(user.id)}
+                                                    disabled={processing}
+                                                />
+                                                <span className="bugu-user-col-name">{user.name}</span>
+                                                <span className="bugu-user-col-fullname">
+                                                    {user.firstName} {user.lastName}
+                                                </span>
+                                                <span className="bugu-user-col-groups" title={formatGroups(user[groupType], groupIdToName)}>
+                                                    {formatGroups(user[groupType], groupIdToName)}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Progress Bar (Remove Mode) */}
+                            {processing && mode === "remove" && (
+                                <div className="bugu-form-group">
+                                    <div className="bugu-progress-bar">
+                                        <div
+                                            className="bugu-progress-fill"
+                                            style={{ width: `${progressPct}%` }}
+                                        />
+                                    </div>
+                                    <div className="bugu-progress-label">
+                                        {progress}/{progressTotal} users processed ({progressPct}%)
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Remove Group Button */}
+                            <div className="bugu-btn-row">
+                                <button
+                                    className="bugu-btn-full bugu-btn-primary bugu-btn-danger"
+                                    disabled={processing || loadingUsers || selectedUserIds.size === 0}
+                                    onClick={handleRemoveGroup}
+                                >
+                                    {processing
+                                        ? "Removing..."
+                                        : `Remove Group from ${selectedUserIds.size} User${selectedUserIds.size !== 1 ? "s" : ""}`}
+                                </button>
+                                {removeCompleted && (
+                                    <button
+                                        className="bugu-btn-full bugu-btn-secondary"
+                                        onClick={handleDownloadRemoveResults}
+                                    >
+                                        Download Results
+                                    </button>
+                                )}
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 {/* ── Right Panel: Log ── */}
