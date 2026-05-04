@@ -297,6 +297,59 @@ export default function CameraHealthReport({ geotabApi }) {
         return sortDir === "asc" ? " ▲" : " ▼";
     };
 
+    // ── Excel Export ──
+    const handleExport = () => {
+        const headers = [
+            "Vehicle Name", "Camera Status", "Camera Health",
+            "GO Device Status", "GO Serial", "Camera Last Seen",
+            "GO Last Contact", "Health Last Checked", "Effective Status",
+        ];
+        const rows = sortedData.map((cam) => [
+            cam.vehicleName,
+            cam.cameraStatus,
+            cam.cameraHealth,
+            cam.goDeviceStatus,
+            cam.goSerial,
+            cam.cameraLastSeen,
+            cam.goLastContact,
+            cam.healthLastChecked,
+            STATUS_LABELS[cam.effectiveStatus] || cam.effectiveStatus,
+        ]);
+
+        // Build XML Spreadsheet (opens natively in Excel)
+        const escXml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        const headerCells = headers.map((h) => `<Cell ss:StyleID="hdr"><Data ss:Type="String">${escXml(h)}</Data></Cell>`).join("");
+        const dataRows = rows.map((row) => {
+            const cells = row.map((val) => `<Cell><Data ss:Type="String">${escXml(val)}</Data></Cell>`).join("");
+            return `<Row>${cells}</Row>`;
+        }).join("\n");
+
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Styles>
+<Style ss:ID="hdr"><Font ss:Bold="1"/><Interior ss:Color="#F5F5F5" ss:Pattern="Solid"/></Style>
+</Styles>
+<Worksheet ss:Name="Camera Health Report">
+<Table>
+${headers.map(() => '<Column ss:AutoFitWidth="1"/>').join("")}
+<Row>${headerCells}</Row>
+${dataRows}
+</Table>
+</Worksheet>
+</Workbook>`;
+
+        const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const dateStr = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `camera-health-report-${dateStr}.xls`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     // ── Column definitions ──
     const columns = [
         ["vehicleName", "Vehicle Name"],
@@ -312,7 +365,16 @@ export default function CameraHealthReport({ geotabApi }) {
     // ── Render ──
     return (
         <div className="chr-container">
-            <h2 className="chr-title">Camera Health Report</h2>
+            <div className="chr-header">
+                <h2 className="chr-title">Camera Health Report</h2>
+                <button
+                    className="chr-btn chr-btn--export"
+                    onClick={handleExport}
+                    disabled={sortedData.length === 0}
+                >
+                    Export to Excel
+                </button>
+            </div>
 
             {/* Summary Cards */}
             <div className="chr-cards">
