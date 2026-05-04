@@ -2,7 +2,21 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Constants ──
 const REFRESH_INTERVAL_SEC = 300; // 5 minutes
-const MEDIA_SERVICES_BASE = "https://media-services.geotab.com/api";
+
+// Camera diagnostic KnownIds
+const DIAG_CAMERA_STATUS = "DiagnosticCameraDeviceStatusId";
+const DIAG_CAMERA_HEALTH = "DiagnosticCameraHealthStatusId";
+
+// Camera status data values (from DiagnosticCameraDeviceStatusId)
+const CAM_STATUS_OFFLINE = 0;
+const CAM_STATUS_ONLINE = 1;
+const CAM_STATUS_STANDBY = 2;
+
+const CAM_STATUS_LABELS = {
+    [CAM_STATUS_OFFLINE]: "Offline",
+    [CAM_STATUS_ONLINE]: "Online",
+    [CAM_STATUS_STANDBY]: "Standby",
+};
 
 // ── API Helpers ──
 const apiCall = (api, method, params) =>
@@ -10,19 +24,20 @@ const apiCall = (api, method, params) =>
         api.call(method, params, resolve, reject);
     });
 
-const getSession = (api) =>
-    new Promise((resolve) => {
-        api.getSession(resolve);
+const apiMultiCall = (api, calls) =>
+    new Promise((resolve, reject) => {
+        api.multiCall(calls, resolve, reject);
     });
 
 // ── Status Derivation ──
-const deriveStatus = (cameraStatus, goIsCommunicating) => {
+// Combines camera device status (from StatusData) with GO device communicating flag
+const deriveStatus = (camStatusValue, goIsCommunicating) => {
     if (goIsCommunicating === null) return "unknown";
-    const camLower = (cameraStatus || "").toLowerCase();
-    if (camLower === "online" && goIsCommunicating) return "online";
-    if (camLower === "standby" && goIsCommunicating) return "standby";
-    if ((camLower === "offline" || camLower === "not communicating") && goIsCommunicating) return "camera-offline";
     if (!goIsCommunicating) return "go-offline";
+    // GO is communicating — check camera status
+    if (camStatusValue === CAM_STATUS_ONLINE) return "online";
+    if (camStatusValue === CAM_STATUS_STANDBY) return "standby";
+    if (camStatusValue === CAM_STATUS_OFFLINE) return "camera-offline";
     return "unknown";
 };
 
@@ -94,45 +109,73 @@ export default function CameraHealthReport({ geotabApi }) {
         setLoading(true);
         setError(null);
         try {
-            const session = await getSession(geotabApi);
-            const database = session.database;
-            const sessionId = session.sessionId;
-            const userName = session.userName;
-
-            // Parallel fetch: media-services + MyGeotab devices + device status
-            const [mappingsRes, devices, statusInfos] = await Promise.all([
-                fetch(`${MEDIA_SERVICES_BASE}/DeviceMappings`, {
-                    headers: {
-                        "x-myg-db": database,
-                        "x-myg-sessid": sessionId,
-                        "x-myg-user": userName,
+            // Parallel fetch via multiCall: Devices, DeviceStatusInfo,
+            // latest camera status StatusData, latest camera health StatusData
+            const results = await apiMultiCall(geotabApi, [
+                ["Get", { typeName: "Device" }],
+                ["Get", { typeName: "DeviceStatusInfo" }],
+                ["Get", {
+                    typeName: "StatusData",
+                    search: {
+                        diagnosticSearch: { id: DIAG_CAMERA_STATUS },
                     },
-                }).then((r) => {
-                    if (!r.ok) throw new Error(`Media Services returned ${r.status}`);
-                    return r.json();
-                }),
-                apiCall(geotabApi, "Get", { typeName: "Device" }),
-                apiCall(geotabApi, "Get", { typeName: "DeviceStatusInfo" }),
+                }],
+                ["Get", {
+                    typeName: "StatusData",
+                    search: {
+                        diagnosticSearch: { id: DIAG_CAMERA_HEALTH },
+                    },
+                }],
             ]);
 
-            // Build lookup maps
-            const deviceBySerial = {};
+            const [devices, statusInfos, camStatusRecords, camHealthRecords] = results;
+
+            // Build device lookup by id
             const deviceById = {};
             for (const dev of devices) {
-                if (dev.serialNumber) deviceBySerial[dev.serialNumber] = dev;
                 deviceById[dev.id] = dev;
             }
 
+            // Build GO device communicating status by device id
             const statusByDeviceId = {};
             for (const si of statusInfos) {
                 if (si.device?.id) statusByDeviceId[si.device.id] = si;
             }
 
-            // Join camera mappings with GO device data
-            const joined = (mappingsRes || []).map((cam) => {
-                const goSerial = cam.associatedDeviceSerialNumber || "";
-                const goDevice = deviceBySerial[goSerial] || null;
-                const goStatusInfo = goDevice ? statusByDeviceId[goDevice.id] || null : null;
+            // Get most recent camera status per device (take latest dateTime)
+            const latestCamStatus = {};
+            for (const rec of camStatusRecords) {
+                const devId = rec.device?.id;
+                if (!devId) continue;
+                if (!latestCamStatus[devId] || new Date(rec.dateTime) > new Date(latestCamStatus[devId].dateTime)) {
+                    latestCamStatus[devId] = rec;
+                }
+            }
+
+            // Get most recent camera health per device
+            const latestCamHealth = {};
+            for (const rec of camHealthRecords) {
+                const devId = rec.device?.id;
+                if (!devId) continue;
+                if (!latestCamHealth[devId] || new Date(rec.dateTime) > new Date(latestCamHealth[devId].dateTime)) {
+                    latestCamHealth[devId] = rec;
+                }
+            }
+
+            // Devices that have camera status data = devices with cameras
+            const cameraDeviceIds = new Set([
+                ...Object.keys(latestCamStatus),
+                ...Object.keys(latestCamHealth),
+            ]);
+
+            // Build joined rows — one per device that has camera data
+            const joined = [];
+            for (const devId of cameraDeviceIds) {
+                const device = deviceById[devId];
+                const goStatusInfo = statusByDeviceId[devId] || null;
+                const camStatusRec = latestCamStatus[devId] || null;
+                const camHealthRec = latestCamHealth[devId] || null;
+
                 const goIsCommunicating = goStatusInfo
                     ? goStatusInfo.isCommunicating !== undefined
                         ? goStatusInfo.isCommunicating
@@ -141,31 +184,41 @@ export default function CameraHealthReport({ geotabApi }) {
                             : null
                     : null;
 
-                const effectiveStatus = deriveStatus(cam.status, goIsCommunicating);
-                const cameraHealth = cam.health || "Unknown";
-                const healthErrors = (cam.healthErrors || []).join(", ");
+                const camStatusValue = camStatusRec ? camStatusRec.data : null;
+                const effectiveStatus = deriveStatus(camStatusValue, goIsCommunicating);
 
-                return {
-                    vehicleName: goDevice ? goDevice.name : cam.associatedDeviceName || "Unknown Vehicle",
-                    cameraStatus: cam.status || "Unknown",
+                // Camera health — interpret the data value
+                let cameraHealth = "Unknown";
+                if (camHealthRec && camHealthRec.data !== null && camHealthRec.data !== undefined) {
+                    const hVal = camHealthRec.data;
+                    if (hVal === 0) cameraHealth = "Healthy";
+                    else if (hVal === 1) cameraHealth = "Unstable";
+                    else if (hVal === 2) cameraHealth = "Not Working";
+                    else if (hVal === 3) cameraHealth = "Pending";
+                    else cameraHealth = `Code ${hVal}`;
+                }
+
+                joined.push({
+                    vehicleName: device ? device.name : devId,
+                    cameraStatus: camStatusValue !== null
+                        ? (CAM_STATUS_LABELS[camStatusValue] || `Code ${camStatusValue}`)
+                        : "Unknown",
                     cameraHealth,
-                    lastRecordingOk: cam.lastRecordingDate ? formatTime(cam.lastRecordingDate) : "—",
                     goDeviceStatus: goIsCommunicating === null
-                        ? "No Match"
+                        ? "No Data"
                         : goIsCommunicating
                             ? "Communicating"
                             : "Not Communicating",
-                    cameraSerial: cam.serialNumber || "—",
-                    goSerial: goSerial || "—",
-                    cameraLastSeen: cam.lastCommunicationDate ? formatTime(cam.lastCommunicationDate) : "—",
+                    goSerial: device ? (device.serialNumber || "—") : "—",
+                    cameraLastSeen: camStatusRec ? formatTime(camStatusRec.dateTime) : "—",
                     goLastContact: goStatusInfo && goStatusInfo.dateTime
                         ? formatTime(goStatusInfo.dateTime)
                         : "—",
-                    healthErrors: healthErrors || "—",
+                    healthLastChecked: camHealthRec ? formatTime(camHealthRec.dateTime) : "—",
                     effectiveStatus,
-                    isUnhealthy: cameraHealth.toLowerCase() !== "healthy" && cameraHealth.toLowerCase() !== "unknown",
-                };
-            });
+                    isUnhealthy: cameraHealth !== "Healthy" && cameraHealth !== "Unknown" && cameraHealth !== "Pending",
+                });
+            }
 
             // Default sort: problems first
             joined.sort((a, b) => (STATUS_ORDER[a.effectiveStatus] ?? 99) - (STATUS_ORDER[b.effectiveStatus] ?? 99));
@@ -222,16 +275,13 @@ export default function CameraHealthReport({ geotabApi }) {
     const activeFilter = cardFilter || statusFilter;
 
     const filtered = cameras.filter((cam) => {
-        // Text search
         if (searchText) {
             const q = searchText.toLowerCase();
             const matchesText =
                 cam.vehicleName.toLowerCase().includes(q) ||
-                cam.cameraSerial.toLowerCase().includes(q) ||
                 cam.goSerial.toLowerCase().includes(q);
             if (!matchesText) return false;
         }
-        // Status filter
         if (activeFilter && activeFilter !== "all" && activeFilter !== "total") {
             if (activeFilter === "unhealthy") return cam.isUnhealthy;
             return cam.effectiveStatus === activeFilter;
@@ -277,6 +327,18 @@ export default function CameraHealthReport({ geotabApi }) {
         if (sortCol !== col) return "";
         return sortDir === "asc" ? " ▲" : " ▼";
     };
+
+    // ── Column definitions ──
+    const columns = [
+        ["vehicleName", "Vehicle Name"],
+        ["cameraStatus", "Camera Status"],
+        ["cameraHealth", "Camera Health"],
+        ["goDeviceStatus", "GO Device Status"],
+        ["goSerial", "GO Serial"],
+        ["cameraLastSeen", "Camera Last Seen"],
+        ["goLastContact", "GO Last Contact"],
+        ["healthLastChecked", "Health Last Checked"],
+    ];
 
     // ── Render ──
     return (
@@ -326,7 +388,7 @@ export default function CameraHealthReport({ geotabApi }) {
                 <input
                     type="text"
                     className="chr-search"
-                    placeholder="Search vehicle name, camera serial, GO serial…"
+                    placeholder="Search vehicle name or GO serial…"
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
                 />
@@ -355,18 +417,7 @@ export default function CameraHealthReport({ geotabApi }) {
                 <table className="chr-table">
                     <thead>
                         <tr>
-                            {[
-                                ["vehicleName", "Vehicle Name"],
-                                ["cameraStatus", "Camera Status"],
-                                ["cameraHealth", "Camera Health"],
-                                ["lastRecordingOk", "Last Recording OK"],
-                                ["goDeviceStatus", "GO Device Status"],
-                                ["cameraSerial", "Camera Serial"],
-                                ["goSerial", "GO Serial"],
-                                ["cameraLastSeen", "Camera Last Seen"],
-                                ["goLastContact", "GO Last Contact"],
-                                ["healthErrors", "Health Errors"],
-                            ].map(([col, label]) => (
+                            {columns.map(([col, label]) => (
                                 <th key={col} onClick={() => handleSort(col)}>
                                     {label}{sortIndicator(col)}
                                 </th>
@@ -376,13 +427,13 @@ export default function CameraHealthReport({ geotabApi }) {
                     <tbody>
                         {loading && cameras.length === 0 ? (
                             <tr>
-                                <td colSpan={10} className="chr-table-empty">
+                                <td colSpan={columns.length} className="chr-table-empty">
                                     Loading camera data…
                                 </td>
                             </tr>
                         ) : sortedData.length === 0 ? (
                             <tr>
-                                <td colSpan={10} className="chr-table-empty">
+                                <td colSpan={columns.length} className="chr-table-empty">
                                     No cameras match the current filters.
                                 </td>
                             </tr>
@@ -396,21 +447,19 @@ export default function CameraHealthReport({ geotabApi }) {
                                         </span>
                                     </td>
                                     <td>
-                                        <span className={`chr-health chr-health--${cam.cameraHealth.toLowerCase()}`}>
+                                        <span className={`chr-health chr-health--${cam.cameraHealth.toLowerCase().replace(/\s+/g, "-")}`}>
                                             {cam.cameraHealth}
                                         </span>
                                     </td>
-                                    <td>{cam.lastRecordingOk}</td>
                                     <td>
                                         <span className={`chr-go-status chr-go-status--${cam.goDeviceStatus === "Communicating" ? "ok" : "bad"}`}>
                                             {cam.goDeviceStatus}
                                         </span>
                                     </td>
-                                    <td className="chr-mono">{cam.cameraSerial}</td>
                                     <td className="chr-mono">{cam.goSerial}</td>
                                     <td>{cam.cameraLastSeen}</td>
                                     <td>{cam.goLastContact}</td>
-                                    <td title={cam.healthErrors} className="chr-errors-cell">{cam.healthErrors}</td>
+                                    <td>{cam.healthLastChecked}</td>
                                 </tr>
                             ))
                         )}
