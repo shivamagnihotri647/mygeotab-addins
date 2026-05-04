@@ -1,0 +1,16 @@
+{
+  "name": "Camera Health Report V2",
+  "supportEmail": "shivam@geotab.com",
+  "version": "2.0.0",
+  "items": [
+    {
+      "url": "https://shivamagnihotri647.github.io/mygeotab-addins/camera-health-report-v2/dist/",
+      "path": "ActivityLink/",
+      "menuName": {
+        "en": "Camera Health Report V2"
+      },
+      "icon": "https://shivamagnihotri647.github.io/mygeotab-addins/camera-health-report-v2/dist/images/icon.svg"
+    }
+  ],
+  "isSigned": false
+}
