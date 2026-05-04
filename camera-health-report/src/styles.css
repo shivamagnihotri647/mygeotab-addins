@@ -1,0 +1,336 @@
+/* Camera Health Report — chr- namespaced */
+
+.chr-container {
+    padding: 16px 24px;
+    max-width: 1600px;
+    font-family: inherit;
+}
+
+.chr-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #394049;
+    margin: 0 0 16px;
+}
+
+/* ═══ Summary Cards ═══ */
+.chr-cards {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.chr-card {
+    flex: 1;
+    min-width: 130px;
+    padding: 14px 16px;
+    border-radius: 8px;
+    border: 2px solid #e0e0e0;
+    background: #fff;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+}
+
+.chr-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.chr-card--active {
+    border-color: #1976d2;
+    box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+
+.chr-card-count {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.chr-card-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-top: 4px;
+}
+
+/* Card colors */
+.chr-card--total .chr-card-count { color: #394049; }
+.chr-card--total .chr-card-label { color: #666; }
+
+.chr-card--online .chr-card-count { color: #2e7d32; }
+.chr-card--online .chr-card-label { color: #2e7d32; }
+
+.chr-card--standby .chr-card-count { color: #1976d2; }
+.chr-card--standby .chr-card-label { color: #1976d2; }
+
+.chr-card--camera-offline .chr-card-count { color: #d32f2f; }
+.chr-card--camera-offline .chr-card-label { color: #d32f2f; }
+
+.chr-card--go-offline .chr-card-count { color: #e65100; }
+.chr-card--go-offline .chr-card-label { color: #e65100; }
+
+.chr-card--unhealthy .chr-card-count { color: #6a1b9a; }
+.chr-card--unhealthy .chr-card-label { color: #6a1b9a; }
+
+/* ═══ Refresh Bar ═══ */
+.chr-refresh-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    background: #f5f5f5;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #666;
+}
+
+.chr-refresh-info {
+    flex: 1;
+}
+
+.chr-btn {
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 5px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background-color 0.2s, opacity 0.2s;
+}
+
+.chr-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.chr-btn--refresh {
+    background: #1976d2;
+    color: #fff;
+    border-color: #1565c0;
+}
+
+.chr-btn--refresh:hover:not(:disabled) {
+    background: #1565c0;
+}
+
+/* ═══ Error Banner ═══ */
+.chr-banner {
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.chr-banner--error {
+    background: #fdecea;
+    border-left: 4px solid #d32f2f;
+    color: #b71c1c;
+}
+
+.chr-banner-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: inherit;
+    padding: 0 4px;
+    line-height: 1;
+    opacity: 0.7;
+}
+
+.chr-banner-close:hover {
+    opacity: 1;
+}
+
+/* ═══ Filter Bar ═══ */
+.chr-filter-bar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.chr-search {
+    flex: 1;
+    max-width: 400px;
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #394049;
+}
+
+.chr-search:focus {
+    outline: none;
+    border-color: #1976d2;
+    box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+
+.chr-status-select {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #394049;
+    background: #fff;
+}
+
+.chr-status-select:focus {
+    outline: none;
+    border-color: #1976d2;
+    box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+
+.chr-result-count {
+    font-size: 13px;
+    color: #999;
+    white-space: nowrap;
+}
+
+/* ═══ Data Table ═══ */
+.chr-table-wrap {
+    max-height: 600px;
+    overflow: auto;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+}
+
+.chr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    min-width: 1200px;
+}
+
+.chr-table th {
+    position: sticky;
+    top: 0;
+    background: #f5f5f5;
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 2px solid #e0e0e0;
+    color: #394049;
+    z-index: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+}
+
+.chr-table th:hover {
+    background: #eee;
+}
+
+.chr-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid #f0f0f0;
+    color: #394049;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chr-table tr:last-child td {
+    border-bottom: none;
+}
+
+.chr-table tr:hover td {
+    background: #f8f9fa;
+}
+
+.chr-table-empty {
+    text-align: center;
+    padding: 40px 12px !important;
+    color: #999;
+    font-style: italic;
+    max-width: none !important;
+}
+
+.chr-mono {
+    font-family: "Menlo", "Consolas", monospace;
+    font-size: 12px;
+}
+
+.chr-errors-cell {
+    max-width: 180px;
+}
+
+/* ═══ Status Badges ═══ */
+.chr-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.chr-badge--online {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.chr-badge--standby {
+    background: #e3f2fd;
+    color: #1565c0;
+}
+
+.chr-badge--camera-offline {
+    background: #fdecea;
+    color: #c62828;
+}
+
+.chr-badge--go-offline {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.chr-badge--unknown {
+    background: #e0e0e0;
+    color: #666;
+}
+
+/* ═══ Health indicator ═══ */
+.chr-health {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.chr-health--healthy {
+    color: #2e7d32;
+}
+
+.chr-health--unhealthy {
+    color: #c62828;
+}
+
+.chr-health--unknown {
+    color: #999;
+}
+
+/* ═══ GO Device Status ═══ */
+.chr-go-status {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.chr-go-status--ok {
+    color: #2e7d32;
+}
+
+.chr-go-status--bad {
+    color: #d32f2f;
+}
