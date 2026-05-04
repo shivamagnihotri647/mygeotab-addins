@@ -19,6 +19,11 @@ const CAM_STATUS_LABELS = {
 };
 
 // ── API Helpers ──
+const apiCall = (api, method, params) =>
+    new Promise((resolve, reject) => {
+        api.call(method, params, resolve, reject);
+    });
+
 const apiMultiCall = (api, calls) =>
     new Promise((resolve, reject) => {
         api.multiCall(calls, resolve, reject);
@@ -104,39 +109,53 @@ export default function CameraHealthReport({ geotabApi }) {
         setLoading(true);
         setError(null);
         try {
-            // 2 API calls via multiCall:
-            // 1. Device — vehicle names / serials
-            // 2. DeviceStatusInfo with camera diagnostics — GO communicating
-            //    status + camera status/health values in the statusData array
-            const results = await apiMultiCall(geotabApi, [
-                ["Get", { typeName: "Device" }],
-                ["Get", {
-                    typeName: "DeviceStatusInfo",
-                    search: {
-                        diagnostics: [
-                            { id: DIAG_CAMERA_STATUS },
-                            { id: DIAG_CAMERA_HEALTH },
-                        ],
-                    },
-                }],
-            ]);
+            // Step 1: Get DeviceStatusInfo with camera diagnostics.
+            // The diagnostics search populates the statusData array on each
+            // record with the latest values for those diagnostics.
+            const statusInfos = await apiCall(geotabApi, "Get", {
+                typeName: "DeviceStatusInfo",
+                search: {
+                    diagnostics: [
+                        { id: DIAG_CAMERA_STATUS },
+                        { id: DIAG_CAMERA_HEALTH },
+                    ],
+                },
+            });
 
-            const [devices, statusInfos] = results;
-
-            // Build device lookup by id
-            const deviceById = {};
-            for (const dev of devices) {
-                deviceById[dev.id] = dev;
-            }
-
-            // Filter to only DeviceStatusInfo records that have camera
-            // diagnostic data in their statusData array
-            const joined = [];
+            // Step 2: Filter to devices that actually have camera data,
+            // and collect their IDs so we only fetch those Devices (not all 6k+).
+            const cameraInfos = [];
+            const cameraDeviceIds = [];
             for (const si of statusInfos) {
                 const devId = si.device?.id;
                 if (!devId) continue;
+                const sdArray = si.statusData || [];
+                const hasCameraData = sdArray.some(
+                    (sd) => sd.diagnostic?.id === DIAG_CAMERA_STATUS || sd.diagnostic?.id === DIAG_CAMERA_HEALTH
+                );
+                if (hasCameraData) {
+                    cameraInfos.push(si);
+                    cameraDeviceIds.push(devId);
+                }
+            }
 
-                // Extract camera diagnostics from the statusData array
+            // Step 3: Batch-fetch only the camera-equipped devices for names/serials.
+            // Uses multiCall so the server processes them in one round-trip.
+            let deviceById = {};
+            if (cameraDeviceIds.length > 0) {
+                const deviceCalls = cameraDeviceIds.map((id) => [
+                    "Get", { typeName: "Device", search: { id } },
+                ]);
+                const deviceResults = await apiMultiCall(geotabApi, deviceCalls);
+                for (const arr of deviceResults) {
+                    if (arr && arr[0]) deviceById[arr[0].id] = arr[0];
+                }
+            }
+
+            // Step 4: Build joined rows
+            const joined = [];
+            for (const si of cameraInfos) {
+                const devId = si.device.id;
                 const sdArray = si.statusData || [];
                 const camStatusRec = sdArray.find(
                     (sd) => sd.diagnostic?.id === DIAG_CAMERA_STATUS
@@ -144,9 +163,6 @@ export default function CameraHealthReport({ geotabApi }) {
                 const camHealthRec = sdArray.find(
                     (sd) => sd.diagnostic?.id === DIAG_CAMERA_HEALTH
                 );
-
-                // Skip devices with no camera data at all
-                if (!camStatusRec && !camHealthRec) continue;
 
                 const device = deviceById[devId];
                 const goIsCommunicating = si.isDeviceCommunicating !== undefined
@@ -158,7 +174,6 @@ export default function CameraHealthReport({ geotabApi }) {
                 const camStatusValue = camStatusRec ? camStatusRec.data : null;
                 const effectiveStatus = deriveStatus(camStatusValue, goIsCommunicating);
 
-                // Camera health — interpret the data value
                 let cameraHealth = "Unknown";
                 if (camHealthRec && camHealthRec.data !== null && camHealthRec.data !== undefined) {
                     const hVal = camHealthRec.data;
