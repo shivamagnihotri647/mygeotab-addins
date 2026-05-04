@@ -19,11 +19,6 @@ const CAM_STATUS_LABELS = {
 };
 
 // ── API Helpers ──
-const apiCall = (api, method, params) =>
-    new Promise((resolve, reject) => {
-        api.call(method, params, resolve, reject);
-    });
-
 const apiMultiCall = (api, calls) =>
     new Promise((resolve, reject) => {
         api.multiCall(calls, resolve, reject);
@@ -109,26 +104,24 @@ export default function CameraHealthReport({ geotabApi }) {
         setLoading(true);
         setError(null);
         try {
-            // Parallel fetch via multiCall: Devices, DeviceStatusInfo,
-            // latest camera status StatusData, latest camera health StatusData
+            // 2 API calls via multiCall:
+            // 1. Device — vehicle names / serials
+            // 2. DeviceStatusInfo with camera diagnostics — GO communicating
+            //    status + camera status/health values in the statusData array
             const results = await apiMultiCall(geotabApi, [
                 ["Get", { typeName: "Device" }],
-                ["Get", { typeName: "DeviceStatusInfo" }],
                 ["Get", {
-                    typeName: "StatusData",
+                    typeName: "DeviceStatusInfo",
                     search: {
-                        diagnosticSearch: { id: DIAG_CAMERA_STATUS },
-                    },
-                }],
-                ["Get", {
-                    typeName: "StatusData",
-                    search: {
-                        diagnosticSearch: { id: DIAG_CAMERA_HEALTH },
+                        diagnostics: [
+                            { id: DIAG_CAMERA_STATUS },
+                            { id: DIAG_CAMERA_HEALTH },
+                        ],
                     },
                 }],
             ]);
 
-            const [devices, statusInfos, camStatusRecords, camHealthRecords] = results;
+            const [devices, statusInfos] = results;
 
             // Build device lookup by id
             const deviceById = {};
@@ -136,53 +129,31 @@ export default function CameraHealthReport({ geotabApi }) {
                 deviceById[dev.id] = dev;
             }
 
-            // Build GO device communicating status by device id
-            const statusByDeviceId = {};
-            for (const si of statusInfos) {
-                if (si.device?.id) statusByDeviceId[si.device.id] = si;
-            }
-
-            // Get most recent camera status per device (take latest dateTime)
-            const latestCamStatus = {};
-            for (const rec of camStatusRecords) {
-                const devId = rec.device?.id;
-                if (!devId) continue;
-                if (!latestCamStatus[devId] || new Date(rec.dateTime) > new Date(latestCamStatus[devId].dateTime)) {
-                    latestCamStatus[devId] = rec;
-                }
-            }
-
-            // Get most recent camera health per device
-            const latestCamHealth = {};
-            for (const rec of camHealthRecords) {
-                const devId = rec.device?.id;
-                if (!devId) continue;
-                if (!latestCamHealth[devId] || new Date(rec.dateTime) > new Date(latestCamHealth[devId].dateTime)) {
-                    latestCamHealth[devId] = rec;
-                }
-            }
-
-            // Devices that have camera status data = devices with cameras
-            const cameraDeviceIds = new Set([
-                ...Object.keys(latestCamStatus),
-                ...Object.keys(latestCamHealth),
-            ]);
-
-            // Build joined rows — one per device that has camera data
+            // Filter to only DeviceStatusInfo records that have camera
+            // diagnostic data in their statusData array
             const joined = [];
-            for (const devId of cameraDeviceIds) {
-                const device = deviceById[devId];
-                const goStatusInfo = statusByDeviceId[devId] || null;
-                const camStatusRec = latestCamStatus[devId] || null;
-                const camHealthRec = latestCamHealth[devId] || null;
+            for (const si of statusInfos) {
+                const devId = si.device?.id;
+                if (!devId) continue;
 
-                const goIsCommunicating = goStatusInfo
-                    ? goStatusInfo.isCommunicating !== undefined
-                        ? goStatusInfo.isCommunicating
-                        : goStatusInfo.isDeviceCommunicating !== undefined
-                            ? goStatusInfo.isDeviceCommunicating
-                            : null
-                    : null;
+                // Extract camera diagnostics from the statusData array
+                const sdArray = si.statusData || [];
+                const camStatusRec = sdArray.find(
+                    (sd) => sd.diagnostic?.id === DIAG_CAMERA_STATUS
+                );
+                const camHealthRec = sdArray.find(
+                    (sd) => sd.diagnostic?.id === DIAG_CAMERA_HEALTH
+                );
+
+                // Skip devices with no camera data at all
+                if (!camStatusRec && !camHealthRec) continue;
+
+                const device = deviceById[devId];
+                const goIsCommunicating = si.isDeviceCommunicating !== undefined
+                    ? si.isDeviceCommunicating
+                    : si.isCommunicating !== undefined
+                        ? si.isCommunicating
+                        : null;
 
                 const camStatusValue = camStatusRec ? camStatusRec.data : null;
                 const effectiveStatus = deriveStatus(camStatusValue, goIsCommunicating);
@@ -211,9 +182,7 @@ export default function CameraHealthReport({ geotabApi }) {
                             : "Not Communicating",
                     goSerial: device ? (device.serialNumber || "—") : "—",
                     cameraLastSeen: camStatusRec ? formatTime(camStatusRec.dateTime) : "—",
-                    goLastContact: goStatusInfo && goStatusInfo.dateTime
-                        ? formatTime(goStatusInfo.dateTime)
-                        : "—",
+                    goLastContact: si.dateTime ? formatTime(si.dateTime) : "—",
                     healthLastChecked: camHealthRec ? formatTime(camHealthRec.dateTime) : "—",
                     effectiveStatus,
                     isUnhealthy: cameraHealth !== "Healthy" && cameraHealth !== "Unknown" && cameraHealth !== "Pending",
