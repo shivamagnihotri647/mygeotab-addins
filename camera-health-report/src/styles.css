@@ -351,3 +351,14 @@
 .chr-go-status--bad {
     color: #d32f2f;
 }
+
+/* ═══ Days Idle ═══ */
+.chr-days {
+    text-align: center;
+    font-weight: 500;
+}
+
+.chr-days--warn {
+    color: #e65100;
+    font-weight: 600;
+}

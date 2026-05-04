@@ -184,6 +184,31 @@ export default function CameraHealthReport({ geotabApi }) {
                     else cameraHealth = `Code ${hVal}`;
                 }
 
+                // Days since last moved — use currentStateDuration if stopped,
+                // otherwise 0 (currently driving). Falls back to dateTime diff.
+                let daysSinceLastMoved = "—";
+                let daysSinceLastMovedNum = -1;
+                if (si.isDriving === true) {
+                    daysSinceLastMoved = "0 (driving)";
+                    daysSinceLastMovedNum = 0;
+                } else if (si.currentStateDuration) {
+                    // currentStateDuration is a TimeSpan string like "12.05:30:00"
+                    const dur = si.currentStateDuration;
+                    const match = String(dur).match(/^(?:(\d+)\.)?(\d+):(\d+):(\d+)/);
+                    if (match) {
+                        const days = parseInt(match[1] || "0", 10);
+                        const hours = parseInt(match[2], 10);
+                        daysSinceLastMovedNum = days + (hours >= 12 ? 1 : 0);
+                        daysSinceLastMoved = daysSinceLastMovedNum === 0 ? "<1" : String(daysSinceLastMovedNum);
+                    }
+                } else if (si.dateTime) {
+                    const diffMs = Date.now() - new Date(si.dateTime).getTime();
+                    if (diffMs > 0) {
+                        daysSinceLastMovedNum = Math.floor(diffMs / 86400000);
+                        daysSinceLastMoved = daysSinceLastMovedNum === 0 ? "<1" : String(daysSinceLastMovedNum);
+                    }
+                }
+
                 joined.push({
                     vehicleName: device ? device.name : devId,
                     cameraStatus: camStatusValue !== null
@@ -196,6 +221,8 @@ export default function CameraHealthReport({ geotabApi }) {
                             ? "Communicating"
                             : "Not Communicating",
                     goSerial: device ? (device.serialNumber || "—") : "—",
+                    daysSinceLastMoved,
+                    daysSinceLastMovedNum,
                     cameraLastSeen: camStatusRec ? formatTime(camStatusRec.dateTime) : "—",
                     goLastContact: si.dateTime ? formatTime(si.dateTime) : "—",
                     healthLastChecked: camHealthRec ? formatTime(camHealthRec.dateTime) : "—",
@@ -300,6 +327,12 @@ export default function CameraHealthReport({ geotabApi }) {
     const sortedData = [...filtered];
     if (sortCol) {
         sortedData.sort((a, b) => {
+            // Numeric sort for days column
+            if (sortCol === "daysSinceLastMoved") {
+                const aNum = a.daysSinceLastMovedNum ?? -1;
+                const bNum = b.daysSinceLastMovedNum ?? -1;
+                return sortDir === "asc" ? aNum - bNum : bNum - aNum;
+            }
             const aVal = a[sortCol] || "";
             const bVal = b[sortCol] || "";
             const cmp = String(aVal).localeCompare(String(bVal), undefined, { sensitivity: "base" });
@@ -316,8 +349,9 @@ export default function CameraHealthReport({ geotabApi }) {
     const handleExport = () => {
         const headers = [
             "Vehicle Name", "Camera Status", "Camera Health",
-            "GO Device Status", "GO Serial", "Camera Last Seen",
-            "GO Last Contact", "Health Last Checked", "Effective Status",
+            "GO Device Status", "GO Serial", "Days Since Last Moved",
+            "Camera Last Seen", "GO Last Contact", "Health Last Checked",
+            "Effective Status",
         ];
         const rows = sortedData.map((cam) => [
             cam.vehicleName,
@@ -325,6 +359,7 @@ export default function CameraHealthReport({ geotabApi }) {
             cam.cameraHealth,
             cam.goDeviceStatus,
             cam.goSerial,
+            cam.daysSinceLastMoved,
             cam.cameraLastSeen,
             cam.goLastContact,
             cam.healthLastChecked,
@@ -372,6 +407,7 @@ ${dataRows}
         ["cameraHealth", "Camera Health"],
         ["goDeviceStatus", "GO Device Status"],
         ["goSerial", "GO Serial"],
+        ["daysSinceLastMoved", "Days Idle"],
         ["cameraLastSeen", "Camera Last Seen"],
         ["goLastContact", "GO Last Contact"],
         ["healthLastChecked", "Health Last Checked"],
@@ -503,6 +539,9 @@ ${dataRows}
                                         </span>
                                     </td>
                                     <td className="chr-mono">{cam.goSerial}</td>
+                                    <td className={`chr-days${cam.daysSinceLastMovedNum > 7 ? " chr-days--warn" : ""}`}>
+                                        {cam.daysSinceLastMoved}
+                                    </td>
                                     <td>{cam.cameraLastSeen}</td>
                                     <td>{cam.goLastContact}</td>
                                     <td>{cam.healthLastChecked}</td>
