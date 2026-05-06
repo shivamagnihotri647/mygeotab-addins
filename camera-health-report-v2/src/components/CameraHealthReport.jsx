@@ -195,8 +195,12 @@ export default function CameraHealthReport({ geotabApi }) {
             ]);
 
             // Step 2: Fetch authoritative camera list from media-services
-            // Note: session.server may be undefined; use window.location.hostname as fallback
-            const serverPath = session.server || window.location.hostname;
+            // Resolve server path: try session properties, then parse from document.referrer (parent MyGeotab frame)
+            let serverPath = session.server || session.path || session.domain;
+            if (!serverPath && document.referrer) {
+                try { serverPath = new URL(document.referrer).hostname; } catch (_) {}
+            }
+            if (!serverPath) serverPath = "my.geotab.com";
             const mappingsResp = await fetch(MEDIA_SERVICES_URL, {
                 headers: {
                     "x-mygeotab-database": session.database,
