@@ -381,11 +381,17 @@
 .chr-detail-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px 24px;
-    padding: 12px 16px;
+    gap: 10px 24px;
+    padding: 14px 16px;
     background: #fff;
     border: 1px solid #eee;
     border-radius: 6px;
+}
+
+@media (max-width: 900px) {
+    .chr-detail-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
 }
 
 .chr-detail-item {
