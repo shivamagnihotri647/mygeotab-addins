@@ -189,19 +189,15 @@ export default function CameraHealthReport({ geotabApi }) {
         setError(null);
         try {
             // Step 1: Get session info for media-services auth
-            // Use Authenticate to get both sessionId AND the correct server path
             const session = await new Promise((resolve) => geotabApi.getSession(resolve));
-            const authResult = await apiCall(geotabApi, "Authenticate", {
-                userName: session.userName,
-                database: session.database,
-                sessionId: session.sessionId,
-            });
+            const sessionId = session.sessionId;
 
-            const sessionId = authResult.credentials.sessionId;
-
-            // Resolve server path from Authenticate response (most reliable),
+            // Resolve server path: ancestorOrigins (Chrome/Edge/Safari),
             // then document.referrer, then fallback
-            let serverPath = authResult.path || authResult.credentials.server;
+            let serverPath;
+            if (window.location.ancestorOrigins && window.location.ancestorOrigins.length > 0) {
+                try { serverPath = new URL(window.location.ancestorOrigins[0]).hostname; } catch (_) {}
+            }
             if (!serverPath && document.referrer) {
                 try { serverPath = new URL(document.referrer).hostname; } catch (_) {}
             }
