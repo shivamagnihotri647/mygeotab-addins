@@ -61,9 +61,14 @@ function parseGroupConnections(err) {
             if (match) infoStr = match[0];
         }
 
-        if (!infoStr) return null;
+        // SDK-parsed errors deliver data as the connections object directly (no .info wrapper)
+        const parsed = infoStr
+            ? (typeof infoStr === "string" ? JSON.parse(infoStr) : infoStr)
+            : errObj?.data && typeof errObj.data === "object" && "devices" in errObj.data
+            ? errObj.data
+            : null;
 
-        const parsed = typeof infoStr === "string" ? JSON.parse(infoStr) : infoStr;
+        if (!parsed) return null;
 
         // Filter out the "group" key (it's the group itself) and empty arrays
         const connections = {};
