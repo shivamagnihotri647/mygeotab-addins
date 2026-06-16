@@ -106,12 +106,16 @@ export default function ZoneUploadManager({ geotabApi }) {
       let page = 0;
       let fetched = 0;
 
+      let fromVersion = "0";
       while (true) {
-        const zones = await apiCall(geotabApi, "Get", {
+        const feed = await apiCall(geotabApi, "GetFeed", {
           typeName: "Zone",
-          search: {},
+          fromVersion,
           resultsLimit: GET_PAGE_SIZE,
         });
+
+        const zones = feed.data || [];
+        fromVersion = feed.toVersion;
 
         for (const z of zones) {
           const name = (z.name || "").trim();
@@ -126,8 +130,9 @@ export default function ZoneUploadManager({ geotabApi }) {
         addLog(setP1Log, `Page ${page}: ${fetched.toLocaleString()} zones fetched…`);
         setTotalZones(fetched);
 
+        // GetFeed returns fewer than resultsLimit when all records are exhausted
         if (zones.length < GET_PAGE_SIZE) break;
-        await delay(200); // small pause between Get pages
+        await delay(200);
       }
 
       // Find duplicates
