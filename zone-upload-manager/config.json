@@ -1,6 +1,7 @@
 {
   "name": "Zone Upload Manager",
   "version": "1.0.0",
+  "supportEmail": "shivamagnihotri@geotab.com",
   "items": [
     {
       "url": "https://shivamagnihotri647.github.io/mygeotab-addins/zone-upload-manager/dist/",
