@@ -27,7 +27,7 @@ function circleToPolygon(lat, lon, diameterM, n = 16) {
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ADD_BATCH     = 100;   // zones per Add multiCall
 const REM_BATCH     = 25;    // zones per Remove multiCall
-const REM_CONCUR    = 20;    // concurrent Remove multiCalls (20×25=500 removes/round, under 1000/min)
+const REM_CONCUR    = 8;     // concurrent Remove multiCalls (8×25=200 removes/round, well under 1000/min)
 const ADD_WINDOW_MS = 6700;  // 900 zones/min — 100 per batch, 6.7s window including API time
 const GET_PAGE_SIZE = 5000;
 
