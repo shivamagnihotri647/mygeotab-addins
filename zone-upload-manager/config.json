@@ -1,0 +1,15 @@
+{
+  "name": "Zone Upload Manager",
+  "version": "1.0.0",
+  "items": [
+    {
+      "url": "https://shivamagnihotri647.github.io/mygeotab-addins/zone-upload-manager/dist/",
+      "path": "ZoneLink/",
+      "menuName": {
+        "en": "Zone Upload Manager"
+      },
+      "icon": "https://shivamagnihotri647.github.io/mygeotab-addins/zone-upload-manager/dist/images/icon.svg"
+    }
+  ],
+  "isSigned": false
+}
