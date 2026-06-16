@@ -25,9 +25,9 @@ function circleToPolygon(lat, lon, diameterM, n = 16) {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const BATCH_SIZE = 100;
+const ADD_BATCH   = 100;     // zones per Add multiCall
+const REM_BATCH   = 25;      // zones per Remove multiCall (smaller = faster server response)
 const ADD_WINDOW_MS = 6700;  // 900 zones/min — 100 per batch, 6.7s window including API time
-const REM_WINDOW_MS = 6000;  // 1000 removes/min — 100 per batch, 6s window including API time
 const GET_PAGE_SIZE = 5000;
 
 const ZONE_TYPE  = "ZoneTypeCustomerId";
@@ -167,23 +167,20 @@ export default function ZoneUploadManager({ geotabApi }) {
     addLog(setP1Log, `Deleting ${toDelete.length.toLocaleString()} duplicate zones…`);
 
     let done = 0;
-    for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
-      const batch = toDelete.slice(i, i + BATCH_SIZE);
+    const delStart = Date.now();
+    for (let i = 0; i < toDelete.length; i += REM_BATCH) {
+      const batch = toDelete.slice(i, i + REM_BATCH);
       const calls = batch.map((id) => ["Remove", { typeName: "Zone", entity: { id } }]);
-      const t0 = Date.now();
       try {
         await apiMultiCall(geotabApi, calls);
         done += batch.length;
         setDelDone(done);
-        addLog(setP1Log, `Deleted ${done.toLocaleString()} / ${toDelete.length.toLocaleString()}…`);
+        const elapsedMin = (Date.now() - delStart) / 60000;
+        const rate = elapsedMin > 0 ? Math.round(done / elapsedMin) : 0;
+        const eta  = rate > 0 ? ((toDelete.length - done) / rate).toFixed(1) : "?";
+        addLog(setP1Log, `Deleted ${done.toLocaleString()} / ${toDelete.length.toLocaleString()} — ${rate}/min, ETA ${eta} min`);
       } catch (err) {
         addLog(setP1Log, `Batch error: ${err.message || err}`, "error");
-      }
-      // Sleep only the remaining time in the 6s window so API call time counts toward the window
-      if (i + BATCH_SIZE < toDelete.length) {
-        const elapsed = Date.now() - t0;
-        const remaining = REM_WINDOW_MS - elapsed;
-        if (remaining > 0) await delay(remaining);
       }
     }
 
@@ -244,7 +241,7 @@ export default function ZoneUploadManager({ geotabApi }) {
     let done = 0;
     const total = toUpload.length;
 
-    for (let i = 0; i < total; i += BATCH_SIZE) {
+    for (let i = 0; i < total; i += ADD_BATCH) {
       // Pause / cancel check
       while (pauseRef.current && !cancelRef.current) await delay(500);
       if (cancelRef.current) {
@@ -254,7 +251,7 @@ export default function ZoneUploadManager({ geotabApi }) {
       }
 
       const batchT0 = Date.now();
-      const batch = toUpload.slice(i, i + BATCH_SIZE);
+      const batch = toUpload.slice(i, i + ADD_BATCH);
       const calls = batch.map((row) => {
         const [name, lat, lon, ref, comments, diameter] = row;
         const entity = {
@@ -287,9 +284,9 @@ export default function ZoneUploadManager({ geotabApi }) {
         setUpDone(done);
         if (batchErrors.length > 0) {
           setUpErrors((prev) => [...prev, ...batchErrors]);
-          addLog(setP3Log, `Batch ${Math.ceil(i / BATCH_SIZE) + 1}: ${batchErrors.length} error(s)`, "error");
+          addLog(setP3Log, `Batch ${Math.ceil(i / ADD_BATCH) + 1}: ${batchErrors.length} error(s)`, "error");
         } else {
-          addLog(setP3Log, `Batch ${Math.ceil(i / BATCH_SIZE) + 1}: ${batch.length} zones uploaded ✓`);
+          addLog(setP3Log, `Batch ${Math.ceil(i / ADD_BATCH) + 1}: ${batch.length} zones uploaded ✓`);
         }
       } catch (err) {
         addLog(setP3Log, `Batch error: ${err.message || err}`, "error");
@@ -302,7 +299,7 @@ export default function ZoneUploadManager({ geotabApi }) {
       setUpRate(Math.round(rate));
       setUpEta(eta.toFixed(1));
 
-      if (i + BATCH_SIZE < total) {
+      if (i + ADD_BATCH < total) {
         const batchElapsed = Date.now() - batchT0;
         const remaining = ADD_WINDOW_MS - batchElapsed;
         if (remaining > 0) await delay(remaining);
