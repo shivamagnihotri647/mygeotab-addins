@@ -66,6 +66,8 @@ export default function ZoneUploadManager({ geotabApi }) {
   const [totalZones, setTotalZones]   = useState(0);
   const [dupGroups, setDupGroups]     = useState([]);   // [{name, ids:[...]}]
   const [delDone, setDelDone]         = useState(0);
+  const [delTotal, setDelTotal]       = useState(0);
+  const [p1Complete, setP1Complete]   = useState("");
   const [p1Log, setP1Log]             = useState([]);
 
   // Phase 2 state
@@ -160,6 +162,8 @@ export default function ZoneUploadManager({ geotabApi }) {
 
     setP1Status("running");
     setDelDone(0);
+    setDelTotal(toDelete.length);
+    setP1Complete("");
     addLog(setP1Log, `Deleting ${toDelete.length.toLocaleString()} duplicate zones…`);
 
     let done = 0;
@@ -178,6 +182,7 @@ export default function ZoneUploadManager({ geotabApi }) {
     }
 
     addLog(setP1Log, `Done. ${done.toLocaleString()} duplicates removed.`, "success");
+    setP1Complete(`✓ Complete — ${done.toLocaleString()} duplicate zones deleted.`);
     setDupGroups([]);
     setP1Status("done");
   }, [geotabApi, dupGroups]);
@@ -364,8 +369,11 @@ export default function ZoneUploadManager({ geotabApi }) {
               </button>
             )}
           </div>
-          {delDone > 0 && dupZoneCount > 0 && (
-            <ProgressBar done={delDone} total={dupZoneCount} />
+          {delTotal > 0 && (
+            <ProgressBar done={delDone} total={delTotal} />
+          )}
+          {p1Complete && (
+            <div className="zum-complete-msg">{p1Complete}</div>
           )}
           <LogArea logs={p1Log} />
         </div>
