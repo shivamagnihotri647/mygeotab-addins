@@ -26,8 +26,8 @@ function circleToPolygon(lat, lon, diameterM, n = 16) {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BATCH_SIZE = 100;
-const ADD_DELAY_MS = 6700;   // 900 zones/min
-const REM_DELAY_MS = 6000;   // 1000 removes/min
+const ADD_WINDOW_MS = 6700;  // 900 zones/min — 100 per batch, 6.7s window including API time
+const REM_WINDOW_MS = 6000;  // 1000 removes/min — 100 per batch, 6s window including API time
 const GET_PAGE_SIZE = 5000;
 
 const ZONE_TYPE  = "ZoneTypeCustomerId";
@@ -170,6 +170,7 @@ export default function ZoneUploadManager({ geotabApi }) {
     for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
       const batch = toDelete.slice(i, i + BATCH_SIZE);
       const calls = batch.map((id) => ["Remove", { typeName: "Zone", entity: { id } }]);
+      const t0 = Date.now();
       try {
         await apiMultiCall(geotabApi, calls);
         done += batch.length;
@@ -178,7 +179,12 @@ export default function ZoneUploadManager({ geotabApi }) {
       } catch (err) {
         addLog(setP1Log, `Batch error: ${err.message || err}`, "error");
       }
-      if (i + BATCH_SIZE < toDelete.length) await delay(REM_DELAY_MS);
+      // Sleep only the remaining time in the 6s window so API call time counts toward the window
+      if (i + BATCH_SIZE < toDelete.length) {
+        const elapsed = Date.now() - t0;
+        const remaining = REM_WINDOW_MS - elapsed;
+        if (remaining > 0) await delay(remaining);
+      }
     }
 
     addLog(setP1Log, `Done. ${done.toLocaleString()} duplicates removed.`, "success");
@@ -247,6 +253,7 @@ export default function ZoneUploadManager({ geotabApi }) {
         return;
       }
 
+      const batchT0 = Date.now();
       const batch = toUpload.slice(i, i + BATCH_SIZE);
       const calls = batch.map((row) => {
         const [name, lat, lon, ref, comments, diameter] = row;
@@ -295,7 +302,11 @@ export default function ZoneUploadManager({ geotabApi }) {
       setUpRate(Math.round(rate));
       setUpEta(eta.toFixed(1));
 
-      if (i + BATCH_SIZE < total) await delay(ADD_DELAY_MS);
+      if (i + BATCH_SIZE < total) {
+        const batchElapsed = Date.now() - batchT0;
+        const remaining = ADD_WINDOW_MS - batchElapsed;
+        if (remaining > 0) await delay(remaining);
+      }
     }
 
     addLog(setP3Log, `Upload complete: ${done.toLocaleString()} zones added.`, "success");
