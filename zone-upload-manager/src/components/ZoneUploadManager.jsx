@@ -25,8 +25,9 @@ function circleToPolygon(lat, lon, diameterM, n = 16) {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const ADD_BATCH   = 100;     // zones per Add multiCall
-const REM_BATCH   = 25;      // zones per Remove multiCall (smaller = faster server response)
+const ADD_BATCH     = 100;   // zones per Add multiCall
+const REM_BATCH     = 25;    // zones per Remove multiCall
+const REM_CONCUR    = 8;     // concurrent Remove multiCalls (8×25=200 removes/round, well under 1000/min)
 const ADD_WINDOW_MS = 6700;  // 900 zones/min — 100 per batch, 6.7s window including API time
 const GET_PAGE_SIZE = 5000;
 
@@ -168,20 +169,33 @@ export default function ZoneUploadManager({ geotabApi }) {
 
     let done = 0;
     const delStart = Date.now();
-    for (let i = 0; i < toDelete.length; i += REM_BATCH) {
-      const batch = toDelete.slice(i, i + REM_BATCH);
-      const calls = batch.map((id) => ["Remove", { typeName: "Zone", entity: { id } }]);
-      try {
-        await apiMultiCall(geotabApi, calls);
-        done += batch.length;
-        setDelDone(done);
-        const elapsedMin = (Date.now() - delStart) / 60000;
-        const rate = elapsedMin > 0 ? Math.round(done / elapsedMin) : 0;
-        const eta  = rate > 0 ? ((toDelete.length - done) / rate).toFixed(1) : "?";
-        addLog(setP1Log, `Deleted ${done.toLocaleString()} / ${toDelete.length.toLocaleString()} — ${rate}/min, ETA ${eta} min`);
-      } catch (err) {
-        addLog(setP1Log, `Batch error: ${err.message || err}`, "error");
+    // Fire REM_CONCUR batches in parallel per round, then move to next round
+    for (let i = 0; i < toDelete.length; i += REM_BATCH * REM_CONCUR) {
+      const roundBatches = [];
+      for (let j = 0; j < REM_CONCUR; j++) {
+        const start = i + j * REM_BATCH;
+        if (start >= toDelete.length) break;
+        const batch = toDelete.slice(start, start + REM_BATCH);
+        roundBatches.push(batch);
       }
+      // Fire all batches in this round concurrently
+      const results = await Promise.allSettled(
+        roundBatches.map((batch) =>
+          apiMultiCall(geotabApi, batch.map((id) => ["Remove", { typeName: "Zone", entity: { id } }]))
+        )
+      );
+      results.forEach((r, idx) => {
+        if (r.status === "fulfilled") {
+          done += roundBatches[idx].length;
+        } else {
+          addLog(setP1Log, `Batch error: ${r.reason?.message || r.reason}`, "error");
+        }
+      });
+      setDelDone(done);
+      const elapsedMin = (Date.now() - delStart) / 60000;
+      const rate = elapsedMin > 0 ? Math.round(done / elapsedMin) : 0;
+      const eta  = rate > 0 ? ((toDelete.length - done) / rate).toFixed(1) : "?";
+      addLog(setP1Log, `Deleted ${done.toLocaleString()} / ${toDelete.length.toLocaleString()} — ${rate}/min, ETA ${eta} min`);
     }
 
     addLog(setP1Log, `Done. ${done.toLocaleString()} duplicates removed.`, "success");
