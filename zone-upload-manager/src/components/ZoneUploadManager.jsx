@@ -134,7 +134,7 @@ export default function ZoneUploadManager({ geotabApi }) {
 
         // GetFeed returns fewer than resultsLimit when all records are exhausted
         if (zones.length < GET_PAGE_SIZE) break;
-        await delay(200);
+        await delay(300); // 200 GetFeed/min limit → 1 per 300ms max
       }
 
       // Find duplicates
