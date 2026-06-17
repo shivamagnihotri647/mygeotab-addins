@@ -24,11 +24,19 @@ function circleToPolygon(lat, lon, diameterM, n = 16) {
   });
 }
 
+function computeCenter(points) {
+  if (!points || points.length === 0) return { lat: 0, lon: 0 };
+  const sum = points.reduce((acc, p) => ({ lat: acc.lat + p.y, lon: acc.lon + p.x }), { lat: 0, lon: 0 });
+  return { lat: sum.lat / points.length, lon: sum.lon / points.length };
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ADD_BATCH     = 100;   // zones per Add multiCall
 const REM_BATCH     = 25;    // zones per Remove multiCall
 const REM_CONCUR    = 20;    // concurrent Remove multiCalls (20×25=500 removes/round, under 1000/min)
+const SET_BATCH     = 100;   // zones per Set multiCall
 const ADD_WINDOW_MS = 6700;  // 900 zones/min — 100 per batch, 6.7s window including API time
+const SET_WINDOW_MS = 30000; // 200 Set/min — 100 per batch, 30s window
 const GET_PAGE_SIZE = 5000;
 
 const ZONE_TYPE  = "ZoneTypeCustomerId";
@@ -86,9 +94,21 @@ export default function ZoneUploadManager({ geotabApi }) {
   const [upEta, setUpEta]             = useState(0);
   const [p3Log, setP3Log]             = useState([]);
 
+  // Phase 4 state
+  const [p4Status, setP4Status]       = useState("idle");
+  const [p4FileName, setP4FileName]   = useState("");
+  const [p4Diameter, setP4Diameter]   = useState(100);
+  const [p4Total, setP4Total]         = useState(0);
+  const [p4Done, setP4Done]           = useState(0);
+  const [p4Rate, setP4Rate]           = useState(0);
+  const [p4Eta, setP4Eta]             = useState(0);
+  const [p4Log, setP4Log]             = useState([]);
+  const p4NamesRef = useRef(new Set()); // names from the reference xlsx
+
   // Refs for pause/cancel
   const pauseRef   = useRef(false);
   const cancelRef  = useRef(false);
+  const p4CancelRef = useRef(false);
 
   // Cached zone name set (populated in phase 1, reused in phase 2)
   const existingNamesRef = useRef(new Set());
@@ -324,6 +344,125 @@ export default function ZoneUploadManager({ geotabApi }) {
     setP3Status("done");
   }, [geotabApi, toUpload]);
 
+  // ── Phase 4: Resize upload-sourced zones ─────────────────────────────────
+  const handleP4File = useCallback(async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setP4FileName(file.name);
+    p4NamesRef.current = new Set();
+    try {
+      const buf = await file.arrayBuffer();
+      const wb  = XLSX.read(buf, { type: "array" });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      raw.slice(1).forEach((r) => {
+        if (r[0]) p4NamesRef.current.add(String(r[0]).trim());
+      });
+      addLog(setP4Log, `Loaded ${p4NamesRef.current.size.toLocaleString()} zone names from file.`);
+    } catch (err) {
+      addLog(setP4Log, `Error reading file: ${err.message || err}`, "error");
+    }
+    e.target.value = "";
+  }, []);
+
+  const startResize = useCallback(async () => {
+    const targetNames = p4NamesRef.current;
+    if (targetNames.size === 0) return;
+    if (!p4Diameter || p4Diameter <= 0) return;
+
+    setP4Status("running");
+    setP4Done(0);
+    setP4Total(0);
+    setP4Log([]);
+    p4CancelRef.current = false;
+    addLog(setP4Log, `Fetching all zones from Geotab to find upload-sourced zones…`);
+
+    try {
+      // Step 1 — fetch all zones with lat/lon/points data
+      const zoneMap = {}; // name → full zone entity (last seen wins)
+      let fromVersion = "0";
+      let fetched = 0;
+      while (true) {
+        const feed = await apiCall(geotabApi, "GetFeed", {
+          typeName: "Zone",
+          fromVersion,
+          resultsLimit: GET_PAGE_SIZE,
+        });
+        const zones = feed.data || [];
+        fromVersion = feed.toVersion;
+        for (const z of zones) {
+          const name = (z.name || "").trim();
+          if (name && targetNames.has(name)) {
+            zoneMap[name] = z;
+          }
+        }
+        fetched += zones.length;
+        addLog(setP4Log, `Scanned ${fetched.toLocaleString()} zones…`);
+        if (zones.length < GET_PAGE_SIZE) break;
+        await delay(300);
+      }
+
+      const toResize = Object.values(zoneMap);
+      addLog(setP4Log, `Found ${toResize.length.toLocaleString()} upload-sourced zones to resize to ${p4Diameter}m.`);
+      setP4Total(toResize.length);
+
+      if (toResize.length === 0) {
+        setP4Status("done");
+        return;
+      }
+
+      // Step 2 — Set each zone with new polygon
+      let done = 0;
+      const startTime = Date.now();
+
+      for (let i = 0; i < toResize.length; i += SET_BATCH) {
+        if (p4CancelRef.current) {
+          addLog(setP4Log, "Resize cancelled.", "warn");
+          setP4Status("paused");
+          return;
+        }
+
+        const batchT0 = Date.now();
+        const batch = toResize.slice(i, i + SET_BATCH);
+        const calls = batch.map((z) => {
+          const center = computeCenter(z.points || []);
+          const updated = {
+            ...z,
+            points: circleToPolygon(center.lat, center.lon, parseFloat(p4Diameter)),
+          };
+          return ["Set", { typeName: "Zone", entity: updated }];
+        });
+
+        try {
+          await apiMultiCall(geotabApi, calls);
+          done += batch.length;
+          setP4Done(done);
+          addLog(setP4Log, `Batch ${Math.ceil(i / SET_BATCH) + 1}: ${batch.length} zones resized ✓`);
+        } catch (err) {
+          addLog(setP4Log, `Batch error: ${err.message || err}`, "error");
+        }
+
+        const elapsed = (Date.now() - startTime) / 1000 / 60;
+        const rate = elapsed > 0 ? done / elapsed : 0;
+        const eta  = rate > 0 ? (toResize.length - done) / rate : 0;
+        setP4Rate(Math.round(rate));
+        setP4Eta(eta.toFixed(1));
+
+        if (i + SET_BATCH < toResize.length) {
+          const batchElapsed = Date.now() - batchT0;
+          const remaining = SET_WINDOW_MS - batchElapsed;
+          if (remaining > 0) await delay(remaining);
+        }
+      }
+
+      addLog(setP4Log, `Resize complete: ${done.toLocaleString()} zones updated to ${p4Diameter}m diameter.`, "success");
+      setP4Status("done");
+    } catch (err) {
+      addLog(setP4Log, `Error: ${err.message || err}`, "error");
+      setP4Status("error");
+    }
+  }, [geotabApi, p4Diameter]);
+
   const togglePause = () => {
     if (p3Status === "running") {
       pauseRef.current = true;
@@ -498,6 +637,85 @@ export default function ZoneUploadManager({ geotabApi }) {
             <p className="zum-hint zum-hint-error">{upErrors.length} zone(s) failed — see log</p>
           )}
           <LogArea logs={p3Log} />
+        </div>
+      </div>
+      {/* ── Phase 4 ── */}
+      <div className="zum-card">
+        <div className="zum-card-header">
+          <span className="zum-phase-label">Phase 4</span>
+          <span className="zum-card-title">Resize Upload-Sourced Zones</span>
+          <Badge status={p4Status} />
+        </div>
+        <div className="zum-card-body">
+          <p className="zum-hint" style={{ marginTop: 0, marginBottom: 10 }}>
+            Loads your upload .xlsx, matches zone names in Geotab, and resizes only those zones — leaving manually created zones untouched.
+          </p>
+          <div className="zum-file-row">
+            <label className="zum-btn zum-btn-secondary" htmlFor="zum-p4-file-input">
+              Browse upload .xlsx
+            </label>
+            <input
+              id="zum-p4-file-input"
+              type="file"
+              accept=".xlsx"
+              className="zum-file-input-hidden"
+              onChange={handleP4File}
+            />
+            {p4FileName && <span className="zum-file-name">{p4FileName}</span>}
+          </div>
+          {p4NamesRef.current.size > 0 && (
+            <div className="zum-stats-row">
+              <div className="zum-stat">
+                <span className="zum-stat-value">{p4NamesRef.current.size.toLocaleString()}</span>
+                <span className="zum-stat-label">Names in file</span>
+              </div>
+              {p4Total > 0 && (
+                <>
+                  <div className="zum-stat">
+                    <span className="zum-stat-value zum-stat-good">{p4Done.toLocaleString()}</span>
+                    <span className="zum-stat-label">Resized</span>
+                  </div>
+                  <div className="zum-stat">
+                    <span className="zum-stat-value">{p4Rate.toLocaleString()}</span>
+                    <span className="zum-stat-label">Zones/min</span>
+                  </div>
+                  <div className="zum-stat">
+                    <span className="zum-stat-value">{p4Eta}</span>
+                    <span className="zum-stat-label">ETA (min)</span>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          <div className="zum-btn-row" style={{ alignItems: "center" }}>
+            <label style={{ fontSize: 13, marginRight: 4 }}>Diameter (m):</label>
+            <input
+              type="number"
+              min="10"
+              max="10000"
+              value={p4Diameter}
+              onChange={(e) => setP4Diameter(Number(e.target.value))}
+              style={{ width: 80, padding: "6px 8px", fontSize: 13, border: "1px solid #dde3ec", borderRadius: 4 }}
+              disabled={p4Status === "running"}
+            />
+            <button
+              className="zum-btn zum-btn-primary"
+              onClick={startResize}
+              disabled={p4NamesRef.current.size === 0 || p4Status === "running" || p4Status === "done"}
+              style={{ marginLeft: 8 }}
+            >
+              {p4Status === "done" ? "Resize Complete" : "Start Resize"}
+            </button>
+            {p4Status === "running" && (
+              <button className="zum-btn zum-btn-danger" onClick={() => { p4CancelRef.current = true; }}>
+                Cancel
+              </button>
+            )}
+          </div>
+          {p4Total > 0 && (
+            <ProgressBar done={p4Done} total={p4Total} />
+          )}
+          <LogArea logs={p4Log} />
         </div>
       </div>
     </div>
