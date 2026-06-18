@@ -78,6 +78,9 @@ export default function ZoneUploadManager({ geotabApi }) {
   const [delTotal, setDelTotal]       = useState(0);
   const [p1Complete, setP1Complete]   = useState("");
   const [p1Log, setP1Log]             = useState([]);
+  const [masterFileName, setMasterFileName] = useState("");
+  const [masterMatchCount, setMasterMatchCount] = useState(0);
+  const masterNamesRef = useRef(new Set()); // names from master xlsx
 
   // Phase 2 state
   const [fileName, setFileName]       = useState("");
@@ -224,15 +227,43 @@ export default function ZoneUploadManager({ geotabApi }) {
     setP1Status("done");
   }, [geotabApi, dupGroups]);
 
-  const deleteAllZones = useCallback(async () => {
+  const handleMasterFile = useCallback(async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setMasterFileName(file.name);
+    setMasterMatchCount(0);
+    masterNamesRef.current = new Set();
+    try {
+      const buf = await file.arrayBuffer();
+      const wb  = XLSX.read(buf, { type: "array" });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      raw.slice(1).forEach((r) => {
+        if (r[0]) masterNamesRef.current.add(String(r[0]).trim());
+      });
+      addLog(setP1Log, `Master list loaded: ${masterNamesRef.current.size.toLocaleString()} zone names.`);
+    } catch (err) {
+      addLog(setP1Log, `Error reading file: ${err.message || err}`, "error");
+    }
+    e.target.value = "";
+  }, []);
+
+  const deleteFromMaster = useCallback(async () => {
+    const targetNames = masterNamesRef.current;
+    if (targetNames.size === 0) return;
+
     setP1Status("running");
     setDelDone(0);
+    setDelTotal(0);
+    setMasterMatchCount(0);
     setP1Complete("");
-    addLog(setP1Log, "Fetching all zone IDs for deletion…");
+    addLog(setP1Log, "Scanning Geotab zones to find master-list matches…");
 
     try {
-      const allIds = [];
+      // Collect IDs of zones whose names are in the master list
+      const toDelete = [];
       let fromVersion = "0";
+      let fetched = 0;
       while (true) {
         const feed = await apiCall(geotabApi, "GetFeed", {
           typeName: "Zone",
@@ -241,29 +272,34 @@ export default function ZoneUploadManager({ geotabApi }) {
         });
         const zones = feed.data || [];
         fromVersion = feed.toVersion;
-        for (const z of zones) allIds.push(z.id);
-        addLog(setP1Log, `Fetched ${allIds.length.toLocaleString()} zone IDs…`);
+        for (const z of zones) {
+          if (targetNames.has((z.name || "").trim())) toDelete.push(z.id);
+        }
+        fetched += zones.length;
+        addLog(setP1Log, `Scanned ${fetched.toLocaleString()} zones, ${toDelete.length.toLocaleString()} matched…`);
         if (zones.length < GET_PAGE_SIZE) break;
         await delay(300);
       }
 
-      if (allIds.length === 0) {
-        addLog(setP1Log, "No zones found.", "warn");
+      setMasterMatchCount(toDelete.length);
+
+      if (toDelete.length === 0) {
+        addLog(setP1Log, "No matching zones found in Geotab.", "warn");
         setP1Status("done");
         return;
       }
 
-      setDelTotal(allIds.length);
-      addLog(setP1Log, `Deleting all ${allIds.length.toLocaleString()} zones…`);
+      setDelTotal(toDelete.length);
+      addLog(setP1Log, `Deleting ${toDelete.length.toLocaleString()} matched zones…`);
 
       let done = 0;
       const delStart = Date.now();
-      for (let i = 0; i < allIds.length; i += REM_BATCH * REM_CONCUR) {
+      for (let i = 0; i < toDelete.length; i += REM_BATCH * REM_CONCUR) {
         const roundBatches = [];
         for (let j = 0; j < REM_CONCUR; j++) {
           const start = i + j * REM_BATCH;
-          if (start >= allIds.length) break;
-          roundBatches.push(allIds.slice(start, start + REM_BATCH));
+          if (start >= toDelete.length) break;
+          roundBatches.push(toDelete.slice(start, start + REM_BATCH));
         }
         const results = await Promise.allSettled(
           roundBatches.map((batch) =>
@@ -277,14 +313,13 @@ export default function ZoneUploadManager({ geotabApi }) {
         setDelDone(done);
         const elapsedMin = (Date.now() - delStart) / 60000;
         const rate = elapsedMin > 0 ? Math.round(done / elapsedMin) : 0;
-        const eta  = rate > 0 ? ((allIds.length - done) / rate).toFixed(1) : "?";
-        addLog(setP1Log, `Deleted ${done.toLocaleString()} / ${allIds.length.toLocaleString()} — ${rate}/min, ETA ${eta} min`);
+        const eta  = rate > 0 ? ((toDelete.length - done) / rate).toFixed(1) : "?";
+        addLog(setP1Log, `Deleted ${done.toLocaleString()} / ${toDelete.length.toLocaleString()} — ${rate}/min, ETA ${eta} min`);
       }
 
       addLog(setP1Log, `Done. ${done.toLocaleString()} zones deleted.`, "success");
-      setP1Complete(`✓ Complete — ${done.toLocaleString()} zones deleted.`);
+      setP1Complete(`✓ Complete — ${done.toLocaleString()} zones from master list deleted.`);
       setDupGroups([]);
-      setTotalZones(0);
       existingNamesRef.current = new Set();
       setP1Status("done");
     } catch (err) {
@@ -561,52 +596,48 @@ export default function ZoneUploadManager({ geotabApi }) {
       <div className="zum-card">
         <div className="zum-card-header">
           <span className="zum-phase-label">Phase 1</span>
-          <span className="zum-card-title">Scan &amp; Remove Duplicates</span>
+          <span className="zum-card-title">Delete Zones from Master List</span>
           <Badge status={p1Status} />
         </div>
         <div className="zum-card-body">
-          {totalZones > 0 && (
+          <p className="zum-hint" style={{ marginTop: 0, marginBottom: 10 }}>
+            Load your master .xlsx to delete only zones whose names appear in the file — manually created zones are left untouched.
+          </p>
+          <div className="zum-file-row">
+            <label className="zum-btn zum-btn-secondary" htmlFor="zum-master-file-input">
+              Browse master .xlsx
+            </label>
+            <input
+              id="zum-master-file-input"
+              type="file"
+              accept=".xlsx"
+              className="zum-file-input-hidden"
+              onChange={handleMasterFile}
+            />
+            {masterFileName && <span className="zum-file-name">{masterFileName}</span>}
+          </div>
+          {masterNamesRef.current.size > 0 && (
             <div className="zum-stats-row">
               <div className="zum-stat">
-                <span className="zum-stat-value">{totalZones.toLocaleString()}</span>
-                <span className="zum-stat-label">Total zones in Geotab</span>
+                <span className="zum-stat-value">{masterNamesRef.current.size.toLocaleString()}</span>
+                <span className="zum-stat-label">Names in master list</span>
               </div>
-              <div className="zum-stat">
-                <span className="zum-stat-value zum-stat-warn">{dupGroups.length.toLocaleString()}</span>
-                <span className="zum-stat-label">Duplicate names</span>
-              </div>
-              <div className="zum-stat">
-                <span className="zum-stat-value zum-stat-warn">{dupZoneCount.toLocaleString()}</span>
-                <span className="zum-stat-label">Zones to delete</span>
-              </div>
+              {masterMatchCount > 0 && (
+                <div className="zum-stat">
+                  <span className="zum-stat-value zum-stat-warn">{masterMatchCount.toLocaleString()}</span>
+                  <span className="zum-stat-label">Matched in Geotab</span>
+                </div>
+              )}
             </div>
           )}
           <div className="zum-btn-row">
             <button
-              className="zum-btn zum-btn-primary"
-              onClick={scanDuplicates}
-              disabled={p1Status === "running"}
+              className="zum-btn zum-btn-danger"
+              onClick={deleteFromMaster}
+              disabled={masterNamesRef.current.size === 0 || p1Status === "running"}
             >
-              {p1Status === "running" ? "Scanning…" : "Scan for Duplicates"}
+              {p1Status === "running" ? "Deleting…" : "Delete Zones from Master List"}
             </button>
-            {dupZoneCount > 0 && (
-              <button
-                className="zum-btn zum-btn-danger"
-                onClick={deleteDuplicates}
-                disabled={p1Status === "running"}
-              >
-                Delete {dupZoneCount.toLocaleString()} Duplicates
-              </button>
-            )}
-            {totalZones > 0 && (
-              <button
-                className="zum-btn zum-btn-danger"
-                onClick={deleteAllZones}
-                disabled={p1Status === "running"}
-              >
-                Delete All {totalZones.toLocaleString()} Zones
-              </button>
-            )}
           </div>
           {delTotal > 0 && (
             <ProgressBar done={delDone} total={delTotal} />
