@@ -224,6 +224,75 @@ export default function ZoneUploadManager({ geotabApi }) {
     setP1Status("done");
   }, [geotabApi, dupGroups]);
 
+  const deleteAllZones = useCallback(async () => {
+    setP1Status("running");
+    setDelDone(0);
+    setP1Complete("");
+    addLog(setP1Log, "Fetching all zone IDs for deletion…");
+
+    try {
+      const allIds = [];
+      let fromVersion = "0";
+      while (true) {
+        const feed = await apiCall(geotabApi, "GetFeed", {
+          typeName: "Zone",
+          fromVersion,
+          resultsLimit: GET_PAGE_SIZE,
+        });
+        const zones = feed.data || [];
+        fromVersion = feed.toVersion;
+        for (const z of zones) allIds.push(z.id);
+        addLog(setP1Log, `Fetched ${allIds.length.toLocaleString()} zone IDs…`);
+        if (zones.length < GET_PAGE_SIZE) break;
+        await delay(300);
+      }
+
+      if (allIds.length === 0) {
+        addLog(setP1Log, "No zones found.", "warn");
+        setP1Status("done");
+        return;
+      }
+
+      setDelTotal(allIds.length);
+      addLog(setP1Log, `Deleting all ${allIds.length.toLocaleString()} zones…`);
+
+      let done = 0;
+      const delStart = Date.now();
+      for (let i = 0; i < allIds.length; i += REM_BATCH * REM_CONCUR) {
+        const roundBatches = [];
+        for (let j = 0; j < REM_CONCUR; j++) {
+          const start = i + j * REM_BATCH;
+          if (start >= allIds.length) break;
+          roundBatches.push(allIds.slice(start, start + REM_BATCH));
+        }
+        const results = await Promise.allSettled(
+          roundBatches.map((batch) =>
+            apiMultiCall(geotabApi, batch.map((id) => ["Remove", { typeName: "Zone", entity: { id } }]))
+          )
+        );
+        results.forEach((r, idx) => {
+          if (r.status === "fulfilled") done += roundBatches[idx].length;
+          else addLog(setP1Log, `Batch error: ${r.reason?.message || r.reason}`, "error");
+        });
+        setDelDone(done);
+        const elapsedMin = (Date.now() - delStart) / 60000;
+        const rate = elapsedMin > 0 ? Math.round(done / elapsedMin) : 0;
+        const eta  = rate > 0 ? ((allIds.length - done) / rate).toFixed(1) : "?";
+        addLog(setP1Log, `Deleted ${done.toLocaleString()} / ${allIds.length.toLocaleString()} — ${rate}/min, ETA ${eta} min`);
+      }
+
+      addLog(setP1Log, `Done. ${done.toLocaleString()} zones deleted.`, "success");
+      setP1Complete(`✓ Complete — ${done.toLocaleString()} zones deleted.`);
+      setDupGroups([]);
+      setTotalZones(0);
+      existingNamesRef.current = new Set();
+      setP1Status("done");
+    } catch (err) {
+      addLog(setP1Log, `Error: ${err.message || err}`, "error");
+      setP1Status("error");
+    }
+  }, [geotabApi]);
+
   // ── Phase 2: File picker & cross-check ───────────────────────────────────
   const handleFile = useCallback(async (e) => {
     const file = e.target.files[0];
@@ -299,7 +368,7 @@ export default function ZoneUploadManager({ geotabApi }) {
           points: circleToPolygon(
             parseFloat(lat),
             parseFloat(lon),
-            parseFloat(diameter) || 250
+            parseFloat(diameter) || 30
           ),
           groups: [{ id: "GroupCompanyId" }],
         };
@@ -527,6 +596,15 @@ export default function ZoneUploadManager({ geotabApi }) {
                 disabled={p1Status === "running"}
               >
                 Delete {dupZoneCount.toLocaleString()} Duplicates
+              </button>
+            )}
+            {totalZones > 0 && (
+              <button
+                className="zum-btn zum-btn-danger"
+                onClick={deleteAllZones}
+                disabled={p1Status === "running"}
+              >
+                Delete All {totalZones.toLocaleString()} Zones
               </button>
             )}
           </div>
