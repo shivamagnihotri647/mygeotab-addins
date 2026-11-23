@@ -3,10 +3,10 @@ import { STRINGS, SUPPORTED, normalizeLang, pick } from "../i18n";
 import PdfViewer from "./PdfViewer";
 import FaqViewer from "./FaqViewer";
 
-// Content lives next to the add-in: .../documentation-hub/content/ (the add-in is served from .../dist/).
-// A page can set window.DOCUMENTATION_HUB_CONTENT_BASE to read content from elsewhere (used by the local test page).
-const CONTENT_BASE =
-    window.DOCUMENTATION_HUB_CONTENT_BASE || new URL("../content/", window.location.href).href;
+import { getContentBase } from "../contentBase";
+
+// Content lives next to the add-in (.../content/); see contentBase.js for how the location is found.
+const CONTENT_BASE = getContentBase();
 const LANG_KEY = "dh-lang";
 
 function readSavedLang() {
@@ -42,7 +42,7 @@ async function detectLanguage(api) {
 
 export default function DocumentationHub({ geotabApi }) {
     const [manifest, setManifest] = useState(null);
-    const [error, setError] = useState(false);
+    const [error, setError] = useState(null);
     const [lang, setLang] = useState("en");
     const [selectedId, setSelectedId] = useState(null);
 
@@ -50,8 +50,9 @@ export default function DocumentationHub({ geotabApi }) {
         let cancelled = false;
         (async () => {
             try {
-                const res = await fetch(CONTENT_BASE + "manifest.json", { cache: "no-cache" });
-                if (!res.ok) throw new Error("manifest " + res.status);
+                const manifestUrl = CONTENT_BASE + "manifest.json";
+                const res = await fetch(manifestUrl, { cache: "no-cache" });
+                if (!res.ok) throw new Error("GET " + manifestUrl + " returned " + res.status);
                 const data = await res.json();
                 const detected = await detectLanguage(geotabApi);
                 if (cancelled) return;
@@ -59,7 +60,7 @@ export default function DocumentationHub({ geotabApi }) {
                 setLang(SUPPORTED.includes(detected) ? detected : data.defaultLanguage || "en");
                 setSelectedId(data.documents && data.documents[0] ? data.documents[0].id : null);
             } catch (e) {
-                if (!cancelled) setError(true);
+                if (!cancelled) setError(String((e && e.message) || e));
             }
         })();
         return () => {
@@ -79,10 +80,11 @@ export default function DocumentationHub({ geotabApi }) {
         [manifest, selectedId]
     );
 
-    if (error) {
+    if (error !== null) {
         return (
             <div className="dh-container" role="alert">
                 <p className="dh-message dh-message-error">{ui.loadError}</p>
+                <p className="dh-detail">{error}</p>
             </div>
         );
     }

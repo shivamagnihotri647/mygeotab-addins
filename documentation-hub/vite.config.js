@@ -7,6 +7,10 @@ export default defineConfig({
     // Required: without this, `process.env` crashes the browser and the add-in never registers.
     define: {
         "process.env.NODE_ENV": JSON.stringify("production"),
+        // Fallback only; the add-in normally finds its content next to its own script. Set DH_CONTENT_BASE for another host.
+        __DH_DEFAULT_CONTENT_BASE__: JSON.stringify(
+            process.env.DH_CONTENT_BASE || "https://shivamagnihotri647.github.io/mygeotab-addins/documentation-hub/content/"
+        ),
     },
     build: {
         outDir: "dist",
