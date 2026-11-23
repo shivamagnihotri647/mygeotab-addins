@@ -49,7 +49,7 @@ FAQ format:
 2. Check `config.json`: the `url` must point to the hosted `dist/` folder.
 3. In MyGeotab: Administration > System > System Settings > Add-Ins. Make sure **Allow unverified Add-Ins** is Yes.
 4. Select **New Add-In**, paste the contents of `config.json`, save, and refresh.
-5. The menu item appears where `path` puts it (currently under Activity).
+5. The menu item appears where `path` puts it (currently `GettingStartedLink/`, the Support menu). Other built-in menu IDs, such as `ActivityLink/`, work the same way.
 
 ## Build
 ```bash

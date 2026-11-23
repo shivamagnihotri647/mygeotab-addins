@@ -1,11 +1,11 @@
 {
   "name": "Documentation Hub",
   "supportEmail": "shivam@geotab.com",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "items": [
     {
       "url": "https://shivamagnihotri647.github.io/mygeotab-addins/documentation-hub/dist/",
-      "path": "ActivityLink/",
+      "path": "GettingStartedLink/",
       "menuName": {
         "en": "Documentation",
         "fr": "Documentation"
