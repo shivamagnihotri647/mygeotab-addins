@@ -1,0 +1,30 @@
+{
+  "sections": [
+    {
+      "title": "Getting started",
+      "items": [
+        {
+          "q": "How long does installation take?",
+          "a": "Most installations take under an hour per vehicle.\n\nThis is sample content. Replace it with your own FAQ."
+        },
+        {
+          "q": "When will my vehicles appear in MyGeotab?",
+          "a": "Vehicles normally appear within a few minutes of the device being plugged in and the ignition being turned on."
+        }
+      ]
+    },
+    {
+      "title": "Using MyGeotab",
+      "items": [
+        {
+          "q": "How do I add another user?",
+          "a": "Go to People, then Users and Drivers, and choose Add. Assign a security clearance that matches the person's role."
+        },
+        {
+          "q": "Who do I contact for support?",
+          "a": "Contact your account team. Their details are in your onboarding guide."
+        }
+      ]
+    }
+  ]
+}

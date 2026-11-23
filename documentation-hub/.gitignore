@@ -1,0 +1,3 @@
+node_modules/
+# Real customer documents for local testing: never push these to a public site
+content-local/

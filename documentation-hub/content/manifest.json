@@ -1,0 +1,21 @@
+{
+  "sample": true,
+  "defaultLanguage": "en",
+  "title": { "en": "Documentation", "fr": "Documentation" },
+  "documents": [
+    {
+      "id": "onboarding",
+      "type": "pdf",
+      "title": { "en": "Onboarding Guide", "fr": "Guide d'intégration" },
+      "description": { "en": "Getting started with telematics", "fr": "Premiers pas avec la télématique" },
+      "file": { "en": "en/onboarding.pdf", "fr": "fr/onboarding.pdf" }
+    },
+    {
+      "id": "faq",
+      "type": "faq",
+      "title": { "en": "Frequently Asked Questions", "fr": "Foire aux questions" },
+      "description": { "en": "Answers to common questions", "fr": "Réponses aux questions courantes" },
+      "file": { "en": "en/faq.json", "fr": "fr/faq.json" }
+    }
+  ]
+}

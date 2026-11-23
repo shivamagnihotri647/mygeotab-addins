@@ -1,0 +1,17 @@
+{
+  "name": "Documentation Hub",
+  "supportEmail": "shivam@geotab.com",
+  "version": "0.1.0",
+  "items": [
+    {
+      "url": "https://shivamagnihotri647.github.io/mygeotab-addins/documentation-hub/dist/",
+      "path": "ActivityLink/",
+      "menuName": {
+        "en": "Documentation",
+        "fr": "Documentation"
+      },
+      "icon": "https://shivamagnihotri647.github.io/mygeotab-addins/documentation-hub/images/icon.svg"
+    }
+  ],
+  "isSigned": false
+}

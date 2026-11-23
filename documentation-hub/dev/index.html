@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Documentation Hub (local test harness)</title>
+  <link rel="stylesheet" href="../dist/styles/style.css">
+</head>
+<body>
+  <p style="font:12px sans-serif;color:#666;margin:8px 24px">Local test harness: fakes the MyGeotab api. ?lang=fr sets the fake user's language.</p>
+  <div id="documentationHub"></div>
+  <script>
+    window.geotab = { addin: {} };
+    if (new URLSearchParams(location.search).get("content") === "local") {
+      window.DOCUMENTATION_HUB_CONTENT_BASE = new URL("../content-local/", location.href).href;
+    }
+    var params = new URLSearchParams(location.search);
+    window.__mockApi = {
+      getSession: function (ok) { ok({ userName: "test.user@example.com", database: "demo" }); },
+      call: function (method, p) {
+        if (method === "Get" && p.typeName === "User") return Promise.resolve([{ language: params.get("lang") || "en" }]);
+        return Promise.resolve([]);
+      }
+    };
+  </script>
+  <script src="../dist/scripts/main.js"></script>
+  <script>
+    var addin = geotab.addin.documentationHub();
+    addin.initialize(window.__mockApi, {}, function () { addin.focus(window.__mockApi); });
+    // Test helpers: ?open=faq opens the FAQ, ?q=text types into its search box.
+    if (params.get("open") === "faq") {
+      setTimeout(function () {
+        document.querySelectorAll(".dh-nav-item")[1].click();
+        if (params.get("q")) setTimeout(function () {
+          var box = document.getElementById("dh-faq-search");
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(box, params.get("q"));
+          box.dispatchEvent(new Event("input", { bubbles: true }));
+        }, 600);
+      }, 800);
+    }
+  </script>
+</body>
+</html>
